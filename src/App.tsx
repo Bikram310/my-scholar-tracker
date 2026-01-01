@@ -27,7 +27,7 @@ import {
   Clock, 
   Save, 
   ChevronRight,
-  Calendar,
+  Calendar as CalendarIcon,
   AlertCircle,
   Lock,
   Plus,
@@ -35,7 +35,10 @@ import {
   Settings,
   Paperclip,
   FileText,
-  X
+  X,
+  ChevronLeft,
+  CalendarDays,
+  Bell
 } from 'lucide-react';
 
 // --- Firebase Configuration & Initialization ---
@@ -52,12 +55,12 @@ if (typeof __firebase_config !== 'undefined') {
   // --- FOR VERCEL / LOCAL DEPLOYMENT ---
   firebaseConfig = {
     apiKey: "AIzaSyDWzyI8IwUPIui6NC4WztO3tPIT0MVP9eU",
-  authDomain: "research-tracker-6c03c.firebaseapp.com",
-  projectId: "research-tracker-6c03c",
-  storageBucket: "research-tracker-6c03c.firebasestorage.app",
-  messagingSenderId: "588669594482",
-  appId: "1:588669594482:web:8ec15eb791d16603e24beb",
-  measurementId: "G-71LZ1K6QH9"
+    authDomain: "research-tracker-6c03c.firebaseapp.com",
+    projectId: "research-tracker-6c03c",
+    storageBucket: "research-tracker-6c03c.firebasestorage.app",
+    messagingSenderId: "588669594482",
+    appId: "1:588669594482:web:8ec15eb791d16603e24beb",
+    measurementId: "G-71LZ1K6QH9"
   };
 }
 
@@ -70,22 +73,30 @@ const db = getFirestore(app);
 interface CategoryDef {
   id: string;
   title: string;
-  color: string; // e.g., 'indigo', 'emerald', 'amber', 'rose', 'blue'
-  iconKey: string; // 'microscope', 'book', 'cap'
+  color: string;
+  iconKey: string;
+}
+
+interface CalendarEvent {
+  id: string;
+  title: string;
+  type: 'workshop' | 'deadline' | 'reminder';
+  completed: boolean;
 }
 
 interface CategoryLog {
   goals: string[];
   completedGoals: boolean[];
   hours: number;
-  notes: string;       // New: Field Notes
-  attachments: string[]; // New: Links/Files
+  notes: string;
+  attachments: string[];
 }
 
 interface DailyLog {
   date: string;
-  categories: Record<string, CategoryLog>; // Dynamic keys based on CategoryDef.id
+  categories: Record<string, CategoryLog>;
   reflection: string;
+  events: CalendarEvent[]; // New: Calendar Events
 }
 
 interface UserConfig {
@@ -94,13 +105,6 @@ interface UserConfig {
 
 // --- Constants & Defaults ---
 const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange'];
-const ICONS = {
-  microscope: Microscope,
-  book: BookOpen,
-  cap: GraduationCap,
-  file: FileText,
-  sun: Sun
-};
 
 const defaultCategories: CategoryDef[] = [
   { id: 'research', title: 'Research Progress', color: 'indigo', iconKey: 'microscope' },
@@ -116,6 +120,10 @@ const getISTTime = () => {
 };
 
 const getTodayStr = () => getISTTime().toISOString().split('T')[0];
+
+// --- Helpers for Calendar ---
+const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay(); // 0 = Sunday
 
 // --- Components ---
 
@@ -153,9 +161,14 @@ export default function ScholarsCompass() {
   
   // UI State
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'morning' | 'dashboard' | 'night' | 'analytics' | 'settings'>('dashboard');
+  const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'night' | 'analytics' | 'settings'>('dashboard');
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
+  
+  // Calendar State
+  const [calDate, setCalDate] = useState(getISTTime());
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
+  const [newEventInput, setNewEventInput] = useState('');
   
   // Temp state for adding items
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
@@ -198,7 +211,6 @@ export default function ScholarsCompass() {
       if (snap.exists()) {
         setConfig(snap.data() as UserConfig);
       } else {
-        // Init default config if new user
         setDoc(configRef, { categories: defaultCategories });
       }
     });
@@ -216,11 +228,11 @@ export default function ScholarsCompass() {
       if (existingToday) {
         setTodayLog(existingToday);
       } else {
-        // Initialize today based on current config (or defaults if config not loaded yet)
         setTodayLog({
           date: todayStr,
           categories: {},
-          reflection: ''
+          reflection: '',
+          events: []
         });
         if (fetchedLogs.length === 0) setView('morning');
       }
@@ -232,8 +244,18 @@ export default function ScholarsCompass() {
 
   // --- Core Logic ---
 
-  // Ensure todayLog has entries for all current categories
+  const getLogForDate = (date: string) => {
+    return logs.find(l => l.date === date) || {
+      date: date,
+      categories: {},
+      reflection: '',
+      events: []
+    } as DailyLog;
+  };
+
   const activeLog = useMemo(() => {
+    // If viewing dashboard/morning/night, we use todayLog
+    // If viewing calendar detail, we technically view that specific log, handled in UI
     if (!todayLog) return null;
     const mergedLog = { ...todayLog };
     
@@ -248,6 +270,7 @@ export default function ScholarsCompass() {
         };
       }
     });
+    if (!mergedLog.events) mergedLog.events = [];
     return mergedLog;
   }, [todayLog, config]);
 
@@ -255,7 +278,10 @@ export default function ScholarsCompass() {
     if (!user) return;
     try {
       await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logToSave.date), logToSave);
-      setTodayLog(logToSave);
+      // Update local state if it's today
+      if (logToSave.date === getTodayStr()) {
+        setTodayLog(logToSave);
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -317,6 +343,27 @@ export default function ScholarsCompass() {
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
   };
 
+  // --- Calendar Event Handlers ---
+  const addEvent = (date: string) => {
+    if (!newEventInput.trim()) return;
+    const log = getLogForDate(date);
+    const newEvent: CalendarEvent = {
+      id: `evt_${Date.now()}`,
+      title: newEventInput.trim(),
+      type: 'workshop', // Default
+      completed: false
+    };
+    const updatedLog = { ...log, events: [...(log.events || []), newEvent] };
+    saveLog(updatedLog);
+    setNewEventInput('');
+  };
+
+  const deleteEvent = (date: string, evtId: string) => {
+    const log = getLogForDate(date);
+    const updatedLog = { ...log, events: log.events.filter(e => e.id !== evtId) };
+    saveLog(updatedLog);
+  };
+
   // --- Settings Handlers ---
   const updateCategoryTitle = (id: string, newTitle: string) => {
     const newCats = config.categories.map(c => c.id === id ? { ...c, title: newTitle } : c);
@@ -344,45 +391,95 @@ export default function ScholarsCompass() {
     if (!logs.length) return null;
     const recentLogs = logs.slice(-7);
     
-    // Initialize data structure based on CURRENT categories
     const chartData: Record<string, number[]> = {};
     const weekTotals: Record<string, number> = {};
-    const monthTotals: Record<string, number> = {};
     
     config.categories.forEach(c => {
       chartData[c.id] = [];
       weekTotals[c.id] = 0;
-      monthTotals[c.id] = 0;
     });
 
     recentLogs.forEach(log => {
       config.categories.forEach(c => {
-        // Handle migration safely (log.categories might not have new keys)
         const hours = log.categories?.[c.id]?.hours || 0;
         chartData[c.id].push(hours);
       });
     });
 
-    // Simple sum for demo (real week logic omitted for brevity but follows same pattern)
     logs.forEach(log => {
         config.categories.forEach(c => {
             const h = log.categories?.[c.id]?.hours || 0;
-            weekTotals[c.id] += h; // Simplified 'all time' for preview
+            weekTotals[c.id] += h; 
         });
     });
 
     return { chartData, weekTotals };
   }, [logs, config]);
 
+  // --- Calendar Render Helpers ---
+  const renderCalendar = () => {
+    const daysInMonth = getDaysInMonth(calDate.getFullYear(), calDate.getMonth());
+    const firstDay = getFirstDayOfMonth(calDate.getFullYear(), calDate.getMonth()); // 0-6
+    const days = [];
 
-  if (loading || !activeLog) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading...</div>;
+    // Empty cells for offset
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<div key={`empty-${i}`} className="h-20 bg-slate-50 border border-slate-100 opacity-50"></div>);
+    }
+
+    // Days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${calDate.getFullYear()}-${String(calDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const log = logs.find(l => l.date === dateStr);
+      const hasEvents = log?.events && log.events.length > 0;
+      const hasData = log && Object.values(log.categories).some(c => c.hours > 0 || c.completedGoals.some(Boolean));
+      
+      const isSelected = selectedDate === dateStr;
+      const isToday = dateStr === getTodayStr();
+
+      days.push(
+        <div 
+          key={d} 
+          onClick={() => setSelectedDate(dateStr)}
+          className={`h-24 p-1 border cursor-pointer transition-colors flex flex-col justify-between relative
+            ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-white z-10' : 'border-slate-200 bg-white hover:bg-slate-50'}
+            ${isToday ? 'bg-indigo-50' : ''}
+          `}
+        >
+          <div className="flex justify-between items-start">
+             <span className={`text-xs font-bold ${isToday ? 'text-indigo-600' : 'text-slate-700'}`}>{d}</span>
+             {hasEvents && <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>}
+          </div>
+          
+          <div className="flex flex-col gap-0.5 mt-1 overflow-hidden">
+             {/* Mini indicators for events */}
+             {log?.events?.slice(0, 2).map((ev, i) => (
+               <div key={i} className="text-[8px] bg-rose-100 text-rose-700 rounded px-1 truncate">
+                 {ev.title}
+               </div>
+             ))}
+             {/* Dot for logged work */}
+             {hasData && <div className="self-end w-1.5 h-1.5 rounded-full bg-emerald-400 mt-auto"></div>}
+          </div>
+        </div>
+      );
+    }
+    return days;
+  };
+
+  const changeMonth = (offset: number) => {
+    setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() + offset, 1));
+  };
+
+
+  if (loading || !activeLog) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading Scholar's Compass...</div>;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
       
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="bg-indigo-600 p-1.5 rounded text-white">
               <BookOpen size={20} />
@@ -392,7 +489,8 @@ export default function ScholarsCompass() {
           <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
             {[
               { id: 'morning', icon: Sun, label: 'Plan' },
-              { id: 'dashboard', icon: Calendar, label: 'Track' },
+              { id: 'dashboard', icon: CalendarDays, label: 'Track' },
+              { id: 'calendar', icon: CalendarIcon, label: 'Calendar' },
               { id: 'analytics', icon: BarChart3, label: 'Analyze' },
               { id: 'night', icon: Moon, label: 'Reflect' },
               { id: 'settings', icon: Settings, label: 'Setup' },
@@ -410,15 +508,100 @@ export default function ScholarsCompass() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 py-8">
+      <main className="max-w-5xl mx-auto px-4 py-8">
+
+        {/* --- VIEW: CALENDAR --- */}
+        {view === 'calendar' && (
+          <div className="animate-fade-in space-y-6">
+            <div className="flex flex-col md:flex-row gap-6">
+              {/* Calendar Grid */}
+              <div className="flex-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="font-serif text-xl font-bold text-slate-900">
+                    {calDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  </h2>
+                  <div className="flex gap-2">
+                    <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft size={20} /></button>
+                    <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded"><ChevronRight size={20} /></button>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-7 gap-px bg-slate-200 border border-slate-200 rounded-lg overflow-hidden">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                    <div key={d} className="bg-slate-50 p-2 text-center text-xs font-bold text-slate-500 uppercase">{d}</div>
+                  ))}
+                  {renderCalendar()}
+                </div>
+              </div>
+
+              {/* Selected Day Detail Panel */}
+              <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
+                <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
+                   <div>
+                     <div className="text-xs font-bold text-slate-400 uppercase">Selected Date</div>
+                     <div className="font-serif text-xl font-bold text-slate-900">{selectedDate}</div>
+                   </div>
+                   {selectedDate === getTodayStr() && <div className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Today</div>}
+                </div>
+
+                {/* Event Management */}
+                <div className="mb-6">
+                   <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
+                     <Bell size={12} className="text-rose-500" /> Events & Deadlines
+                   </h3>
+                   <div className="space-y-2 mb-3">
+                     {getLogForDate(selectedDate).events?.length === 0 && <p className="text-xs text-slate-400 italic">No events scheduled.</p>}
+                     {getLogForDate(selectedDate).events?.map(evt => (
+                       <div key={evt.id} className="flex justify-between items-center bg-rose-50 text-rose-900 p-2 rounded text-xs border border-rose-100">
+                          <span>{evt.title}</span>
+                          <button onClick={() => deleteEvent(selectedDate, evt.id)} className="text-rose-400 hover:text-rose-600"><X size={12} /></button>
+                       </div>
+                     ))}
+                   </div>
+                   <div className="flex gap-2">
+                     <input 
+                       value={newEventInput}
+                       onChange={(e) => setNewEventInput(e.target.value)}
+                       onKeyDown={(e) => e.key === 'Enter' && addEvent(selectedDate)}
+                       placeholder="Add workshop, deadline..."
+                       className="flex-1 text-xs p-2 border border-slate-200 rounded focus:border-rose-500 outline-none"
+                     />
+                     <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
+                   </div>
+                </div>
+
+                {/* Summary of Logs for that day */}
+                <div>
+                   <h3 className="text-xs font-bold text-slate-700 uppercase mb-2">Log Summary</h3>
+                   {Object.entries(getLogForDate(selectedDate).categories).map(([catId, data]) => {
+                     const catDef = config.categories.find(c => c.id === catId);
+                     if (!catDef || (!data.hours && !data.completedGoals.some(Boolean))) return null;
+                     return (
+                       <div key={catId} className="mb-2 text-xs">
+                         <div className={`font-bold text-${catDef.color}-600`}>{catDef.title}</div>
+                         <div className="text-slate-500 ml-2">
+                           {data.hours > 0 && <span>• {data.hours} hrs logged<br/></span>}
+                           {data.completedGoals.filter(Boolean).length > 0 && <span>• {data.completedGoals.filter(Boolean).length} goals met</span>}
+                         </div>
+                       </div>
+                     );
+                   })}
+                   {selectedDate !== getTodayStr() && (
+                     <div className="mt-4 text-[10px] text-slate-400 text-center italic">
+                       To edit log details, switch date to Today or navigate to Tracker view.
+                     </div>
+                   )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* --- VIEW: SETTINGS --- */}
         {view === 'settings' && (
            <div className="animate-fade-in space-y-6">
              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
-               <p className="text-sm text-slate-500 mb-6">Customize your tracking domains. You must maintain at least two plans.</p>
-               
                <div className="space-y-4">
                  {config.categories.map((cat) => (
                    <div key={cat.id} className="flex items-center gap-3">
@@ -428,23 +611,11 @@ export default function ScholarsCompass() {
                        onChange={(e) => updateCategoryTitle(cat.id, e.target.value)}
                        className="flex-1 p-2 border border-slate-300 rounded text-sm font-bold text-slate-700 focus:border-indigo-500 outline-none"
                      />
-                     <button 
-                       onClick={() => deleteCategory(cat.id)}
-                       className="p-2 text-slate-400 hover:text-red-500 transition-colors"
-                       title="Delete Plan"
-                     >
-                       <Trash2 size={16} />
-                     </button>
+                     <button onClick={() => deleteCategory(cat.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
                    </div>
                  ))}
                </div>
-
-               <button 
-                 onClick={addCategory}
-                 className="mt-6 flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700"
-               >
-                 <Plus size={16} /> Add New Plan
-               </button>
+               <button onClick={addCategory} className="mt-6 flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700"><Plus size={16} /> Add New Plan</button>
              </div>
            </div>
         )}
@@ -452,11 +623,22 @@ export default function ScholarsCompass() {
         {/* --- VIEW: MORNING --- */}
         {view === 'morning' && (
           <div className="animate-fade-in space-y-6">
+            {/* Events Alert */}
+            {activeLog.events && activeLog.events.length > 0 && (
+              <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl flex items-start gap-3">
+                 <AlertCircle className="text-rose-500 shrink-0" size={20} />
+                 <div>
+                   <h3 className="font-bold text-rose-800 text-sm">Happening Today</h3>
+                   <ul className="list-disc list-inside text-xs text-rose-700 mt-1">
+                     {activeLog.events.map(ev => <li key={ev.id}>{ev.title}</li>)}
+                   </ul>
+                 </div>
+              </div>
+            )}
+
             <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-6 rounded-xl border border-orange-100">
               <h2 className="font-serif text-2xl font-bold text-orange-900 mb-2">Morning Resolutions</h2>
-              <p className="text-orange-800/80">
-                Define your vectors for the day. (Edit titles in 'Setup' tab)
-              </p>
+              <p className="text-orange-800/80">Define your vectors for the day.</p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
@@ -467,8 +649,7 @@ export default function ScholarsCompass() {
                     <div className="space-y-2 mb-3">
                       {activeLog.categories[cat.id]?.goals.map((g, i) => (
                         <div key={i} className="flex items-center text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
-                          <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400 mr-2`}></div>
-                          {g}
+                          <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400 mr-2`}></div>{g}
                         </div>
                       ))}
                     </div>
@@ -480,20 +661,15 @@ export default function ScholarsCompass() {
                         placeholder="Add goal..."
                         className="flex-1 text-sm p-2 rounded border border-slate-300 focus:border-indigo-500 outline-none"
                       />
-                      <button onClick={() => handleGoalAdd(cat.id)} className="p-2 bg-slate-800 text-white rounded">
-                        <ChevronRight size={16} />
-                      </button>
+                      <button onClick={() => handleGoalAdd(cat.id)} className="p-2 bg-slate-800 text-white rounded"><ChevronRight size={16} /></button>
                     </div>
                   </div>
                 ))}
               </div>
-
               <div className="flex flex-col justify-center items-center text-center p-8 bg-slate-800 rounded-xl text-slate-300">
                 <Sun size={48} className="text-orange-400 mb-4" />
                 <h3 className="font-serif text-xl text-white mb-2">Ready to execute?</h3>
-                <button onClick={() => setView('dashboard')} className="mt-6 bg-white text-slate-900 px-6 py-2 rounded-full font-bold text-sm hover:bg-orange-50">
-                  Go to Tracker
-                </button>
+                <button onClick={() => setView('dashboard')} className="mt-6 bg-white text-slate-900 px-6 py-2 rounded-full font-bold text-sm hover:bg-orange-50">Go to Tracker</button>
               </div>
             </div>
           </div>
@@ -502,9 +678,26 @@ export default function ScholarsCompass() {
         {/* --- VIEW: TRACKER / DASHBOARD --- */}
         {view === 'dashboard' && (
           <div className="animate-fade-in space-y-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-serif text-2xl font-bold text-slate-900">Today's Ledger</h2>
-              <span className="text-sm font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded">{todayLog?.date}</span>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+              <div>
+                 <h2 className="font-serif text-2xl font-bold text-slate-900">Today's Ledger</h2>
+                 <span className="text-sm font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded inline-block mt-1">{todayLog?.date}</span>
+              </div>
+              
+              {/* Today's Events Widget */}
+              {activeLog.events && activeLog.events.length > 0 ? (
+                 <div className="bg-rose-50 border border-rose-200 px-4 py-2 rounded-lg flex items-center gap-3 animate-pulse-slow">
+                    <Bell size={16} className="text-rose-600" />
+                    <div className="text-sm text-rose-800 font-bold">
+                      {activeLog.events.length} Event{activeLog.events.length > 1 ? 's' : ''} Today:
+                      <span className="font-normal ml-1">{activeLog.events[0].title} {activeLog.events.length > 1 && '...'}</span>
+                    </div>
+                 </div>
+              ) : (
+                <div className="text-sm text-slate-400 italic flex items-center gap-2">
+                   <CheckCircle2 size={14} /> No scheduled events today.
+                </div>
+              )}
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -512,16 +705,13 @@ export default function ScholarsCompass() {
                 const catLog = activeLog.categories[cat.id];
                 return (
                   <div key={cat.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full">
-                    {/* Header */}
                     <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-100">
                       <div className={`text-${cat.color}-600 bg-${cat.color}-50 p-2 rounded-lg`}>
-                        {/* Dynamic Icon Fallback */}
                         <GraduationCap size={20} />
                       </div>
                       <h3 className="font-serif text-lg font-bold text-slate-800 leading-tight">{cat.title}</h3>
                     </div>
 
-                    {/* Goals Section */}
                     <div className="flex-1 mb-6">
                       <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider">Objectives</h4>
                       {!catLog?.goals.length ? (
@@ -544,7 +734,6 @@ export default function ScholarsCompass() {
                       )}
                     </div>
 
-                    {/* Notes Section */}
                     <div className="mb-4">
                         <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
                             <FileText size={10} /> Field Notes
@@ -552,12 +741,11 @@ export default function ScholarsCompass() {
                         <textarea 
                             value={catLog?.notes || ''}
                             onChange={(e) => updateNotes(cat.id, e.target.value)}
-                            placeholder={`Progress notes for ${cat.title}...`}
+                            placeholder={`Progress notes...`}
                             className="w-full h-20 text-xs p-2 bg-slate-50 border border-slate-200 rounded resize-none focus:bg-white focus:border-indigo-500 outline-none"
                         />
                     </div>
 
-                    {/* Attachments Section */}
                     <div className="mb-4">
                         <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
                             <Paperclip size={10} /> Proofs / Files
@@ -574,20 +762,15 @@ export default function ScholarsCompass() {
                                 value={newLinkInputs[cat.id] || ''}
                                 onChange={(e) => setNewLinkInputs({ ...newLinkInputs, [cat.id]: e.target.value })}
                                 onKeyDown={(e) => e.key === 'Enter' && handleLinkAdd(cat.id)}
-                                placeholder="Paste URL (Drive/Img)..."
+                                placeholder="Paste URL..."
                                 className="flex-1 text-[10px] p-1 border border-slate-200 rounded focus:border-indigo-500 outline-none"
                             />
-                            <button onClick={() => handleLinkAdd(cat.id)} className="px-2 bg-slate-100 text-slate-600 rounded hover:bg-slate-200">
-                                <Plus size={12} />
-                            </button>
+                            <button onClick={() => handleLinkAdd(cat.id)} className="px-2 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"><Plus size={12} /></button>
                         </div>
                     </div>
 
-                    {/* Time Input */}
                     <div className="pt-3 border-t border-slate-100 flex items-center justify-between bg-slate-50 -mx-5 -mb-5 p-3 rounded-b-xl">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
-                        <Clock size={12} /> Hours
-                      </label>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Clock size={12} /> Hours</label>
                       <input 
                         type="number" step="0.5" min="0"
                         value={catLog?.hours || ''}
@@ -621,12 +804,7 @@ export default function ScholarsCompass() {
                     <h3 className="text-sm font-bold text-slate-800 mb-6">Recent Distribution</h3>
                     <div className={`grid grid-cols-${Math.min(config.categories.length, 4)} gap-6`}>
                         {config.categories.map(cat => (
-                            <BarChart 
-                                key={cat.id} 
-                                data={stats.chartData[cat.id]} 
-                                label={cat.title} 
-                                colorClass={`fill-${cat.color}-500`} 
-                            />
+                            <BarChart key={cat.id} data={stats.chartData[cat.id]} label={cat.title} colorClass={`fill-${cat.color}-500`} />
                         ))}
                     </div>
                  </div>
@@ -641,9 +819,7 @@ export default function ScholarsCompass() {
                 <Moon size={24} className="text-indigo-300" />
                 <h2 className="font-serif text-2xl font-bold">Nightly Protocol</h2>
               </div>
-              <p className="text-indigo-200 opacity-80">
-                Consolidate your progress.
-              </p>
+              <p className="text-indigo-200 opacity-80">Consolidate your progress.</p>
             </div>
 
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
@@ -654,36 +830,17 @@ export default function ScholarsCompass() {
                   onChange={(e) => saveLog({ ...activeLog, reflection: e.target.value })}
                   placeholder="How did the day go?"
               />
-
-              {/* Status Bar */}
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  Auto-sync active
-                </div>
-
+                <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>Auto-sync active</div>
                 {istHour === 23 ? (
-                  <button 
-                    className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
-                    onClick={() => alert("Progress finalized.")}
-                  >
-                    <Save size={18} />
-                    <span>Finalize</span>
-                  </button>
+                  <button onClick={() => alert("Progress finalized.")} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors shadow-md"><Save size={18} /><span>Finalize</span></button>
                 ) : (
-                  <button 
-                    disabled
-                    className="flex items-center gap-2 bg-slate-100 text-slate-400 px-6 py-3 rounded-lg cursor-not-allowed border border-slate-200"
-                  >
-                    <Lock size={18} />
-                    <span>Locked until 11 PM IST</span>
-                  </button>
+                  <button disabled className="flex items-center gap-2 bg-slate-100 text-slate-400 px-6 py-3 rounded-lg cursor-not-allowed border border-slate-200"><Lock size={18} /><span>Locked until 11 PM IST</span></button>
                 )}
               </div>
             </div>
           </div>
         )}
-
       </main>
     </div>
   );
