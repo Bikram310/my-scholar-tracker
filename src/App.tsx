@@ -56,7 +56,6 @@ if (typeof __firebase_config !== 'undefined') {
   appId: "1:588669594482:web:8ec15eb791d16603e24beb",
   measurementId: "G-71LZ1K6QH9"
 };
-  };
 }
 
 const app = initializeApp(firebaseConfig);
