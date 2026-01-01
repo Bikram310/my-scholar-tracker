@@ -38,7 +38,17 @@ import {
   X,
   ChevronLeft,
   CalendarDays,
-  Bell
+  Bell,
+  Circle,
+  PlayCircle,
+  FolderOpen,
+  ExternalLink,
+  Flame,
+  Snowflake,
+  ShieldAlert,
+  Star,
+  Skull,
+  Target
 } from 'lucide-react';
 
 // --- Firebase Configuration & Initialization ---
@@ -70,11 +80,19 @@ const db = getFirestore(app);
 
 // --- Types ---
 
+type GoalStatus = 'pending' | 'progress' | 'completed';
+type AntiGoalStatus = 'pending' | 'succumbed' | 'conquered';
+
 interface CategoryDef {
   id: string;
   title: string;
   color: string;
   iconKey: string;
+}
+
+interface AntiGoalDef {
+  id: string;
+  title: string;
 }
 
 interface CalendarEvent {
@@ -86,7 +104,7 @@ interface CalendarEvent {
 
 interface CategoryLog {
   goals: string[];
-  completedGoals: boolean[];
+  goalStatus: GoalStatus[]; 
   hours: number;
   notes: string;
   attachments: string[];
@@ -96,11 +114,15 @@ interface DailyLog {
   date: string;
   categories: Record<string, CategoryLog>;
   reflection: string;
-  events: CalendarEvent[]; // New: Calendar Events
+  rating: number; // 0-5 stars
+  events: CalendarEvent[];
+  antiGoals: Record<string, AntiGoalStatus>; // id -> status
 }
 
 interface UserConfig {
   categories: CategoryDef[];
+  antiGoals: AntiGoalDef[];
+  streakFreezes: number;
 }
 
 // --- Constants & Defaults ---
@@ -110,6 +132,11 @@ const defaultCategories: CategoryDef[] = [
   { id: 'research', title: 'Research Progress', color: 'indigo', iconKey: 'microscope' },
   { id: 'interview', title: 'PhD Interview Prep', color: 'emerald', iconKey: 'cap' },
   { id: 'gate', title: 'GATE Preparation', color: 'amber', iconKey: 'book' }
+];
+
+const defaultAntiGoals: AntiGoalDef[] = [
+  { id: 'ag_social', title: 'Social Media Scrolling' },
+  { id: 'ag_procrast', title: 'Procrastination' }
 ];
 
 const getISTTime = () => {
@@ -125,26 +152,49 @@ const getTodayStr = () => getISTTime().toISOString().split('T')[0];
 const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay(); // 0 = Sunday
 
+const getWeekNumber = (d: Date) => {
+    d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1)/7);
+};
+
 // --- Components ---
 
-const BarChart = ({ data, label, colorClass }: { data: number[], label: string, colorClass: string }) => {
-  const max = Math.max(...data, 1);
+const ProgressBar = ({ value, max, label, colorClass, suffix = '' }: { value: number, max: number, label: string, colorClass: string, suffix?: string }) => {
+    const percentage = Math.min((value / max) * 100, 100);
+    return (
+        <div className="w-full mb-3">
+            <div className="flex justify-between text-[10px] uppercase font-bold text-slate-500 mb-1">
+                <span>{label}</span>
+                <span>{value.toFixed(1)} {suffix}</span>
+            </div>
+            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                <div 
+                    className={`h-full rounded-full transition-all duration-500 ${colorClass}`} 
+                    style={{ width: `${percentage}%` }}
+                ></div>
+            </div>
+        </div>
+    );
+};
+
+const StarRating = ({ rating, onChange, readOnly = false }: { rating: number, onChange?: (r: number) => void, readOnly?: boolean }) => {
   return (
-    <div className="flex flex-col items-center w-full">
-      <div className="text-xs font-mono text-slate-500 mb-1 truncate w-full text-center">{label}</div>
-      <svg viewBox="0 0 100 100" className="w-full h-24 bg-slate-50 rounded border border-slate-200">
-        {data.map((val, i) => (
-          <rect
-            key={i}
-            x={i * (100 / data.length) + 1}
-            y={100 - (val / max) * 100}
-            width={(100 / data.length) - 2}
-            height={(val / max) * 100}
-            className={colorClass}
-            rx="2"
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <button
+          key={star}
+          onClick={() => !readOnly && onChange && onChange(star)}
+          disabled={readOnly}
+          className={`${readOnly ? 'cursor-default' : 'cursor-pointer hover:scale-110'} transition-transform`}
+        >
+          <Star 
+            size={readOnly ? 10 : 24} 
+            className={`${star <= rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`} 
           />
-        ))}
-      </svg>
+        </button>
+      ))}
     </div>
   );
 };
@@ -155,13 +205,13 @@ export default function ScholarsCompass() {
   const [user, setUser] = useState<User | null>(null);
   
   // State
-  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories });
+  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [todayLog, setTodayLog] = useState<DailyLog | null>(null);
   
   // UI State
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'night' | 'analytics' | 'settings'>('dashboard');
+  const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'library' | 'night' | 'analytics' | 'settings'>('dashboard');
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
   
@@ -170,7 +220,7 @@ export default function ScholarsCompass() {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
   const [newEventInput, setNewEventInput] = useState('');
   
-  // Temp state for adding items
+  // Temp state
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
   const [newLinkInputs, setNewLinkInputs] = useState<Record<string, string>>({});
 
@@ -209,9 +259,14 @@ export default function ScholarsCompass() {
     const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
     getDoc(configRef).then(snap => {
       if (snap.exists()) {
-        setConfig(snap.data() as UserConfig);
+        const data = snap.data();
+        setConfig({
+            categories: data.categories || defaultCategories,
+            antiGoals: data.antiGoals || defaultAntiGoals,
+            streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2
+        });
       } else {
-        setDoc(configRef, { categories: defaultCategories });
+        setDoc(configRef, { categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
       }
     });
 
@@ -232,7 +287,9 @@ export default function ScholarsCompass() {
           date: todayStr,
           categories: {},
           reflection: '',
-          events: []
+          rating: 0,
+          events: [],
+          antiGoals: {}
         });
         if (fetchedLogs.length === 0) setView('morning');
       }
@@ -249,28 +306,45 @@ export default function ScholarsCompass() {
       date: date,
       categories: {},
       reflection: '',
-      events: []
+      rating: 0,
+      events: [],
+      antiGoals: {}
     } as DailyLog;
   };
 
   const activeLog = useMemo(() => {
-    // If viewing dashboard/morning/night, we use todayLog
-    // If viewing calendar detail, we technically view that specific log, handled in UI
     if (!todayLog) return null;
     const mergedLog = { ...todayLog };
     
+    // Merge Categories
     config.categories.forEach(cat => {
       if (!mergedLog.categories[cat.id]) {
         mergedLog.categories[cat.id] = {
           goals: [],
-          completedGoals: [],
+          goalStatus: [],
           hours: 0,
           notes: '',
           attachments: []
         };
       }
+      const catLog = mergedLog.categories[cat.id];
+      if (!catLog.goalStatus) catLog.goalStatus = [];
+      while (catLog.goalStatus.length < catLog.goals.length) {
+        catLog.goalStatus.push('pending');
+      }
     });
+
+    // Merge Anti-Goals
+    if (!mergedLog.antiGoals) mergedLog.antiGoals = {};
+    config.antiGoals.forEach(ag => {
+        if (!mergedLog.antiGoals[ag.id]) {
+            mergedLog.antiGoals[ag.id] = 'pending';
+        }
+    });
+    
     if (!mergedLog.events) mergedLog.events = [];
+    if (mergedLog.rating === undefined) mergedLog.rating = 0;
+
     return mergedLog;
   }, [todayLog, config]);
 
@@ -278,7 +352,6 @@ export default function ScholarsCompass() {
     if (!user) return;
     try {
       await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logToSave.date), logToSave);
-      // Update local state if it's today
       if (logToSave.date === getTodayStr()) {
         setTodayLog(logToSave);
       }
@@ -291,44 +364,80 @@ export default function ScholarsCompass() {
     await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main'), newConfig);
   };
 
+  // --- Streak Calculation ---
+  const currentStreak = useMemo(() => {
+    if (logs.length === 0) return 0;
+    const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const today = getTodayStr();
+    let streak = 0;
+    let expectedDate = new Date(getISTTime());
+    
+    const isTodayActive = (log: DailyLog) => {
+        if (!log) return false;
+        const hasHours = Object.values(log.categories).some(c => c.hours > 0);
+        const hasGoals = Object.values(log.categories).some(c => c.goalStatus.some(s => s !== 'pending'));
+        return log.rating > 0 || hasHours || hasGoals;
+    };
+
+    let logIdx = 0;
+    const todayLog = sortedLogs.find(l => l.date === today);
+    
+    if (todayLog && isTodayActive(todayLog)) {
+        streak = 1;
+        expectedDate.setDate(expectedDate.getDate() - 1); 
+    } else if (sortedLogs.length > 0 && sortedLogs[0].date === today) {
+        logIdx = 1;
+        expectedDate.setDate(expectedDate.getDate() - 1);
+    }
+
+    while (logIdx < sortedLogs.length) {
+        const log = sortedLogs[logIdx];
+        if (log.date === expectedDate.toISOString().split('T')[0]) {
+            if (isTodayActive(log)) {
+                streak++;
+                expectedDate.setDate(expectedDate.getDate() - 1);
+            } else { break; }
+            logIdx++;
+        } else if (new Date(log.date) > expectedDate) {
+            logIdx++;
+        } else { break; }
+    }
+    return streak;
+  }, [logs]);
+
   // --- Handlers ---
 
   const handleGoalAdd = (catId: string) => {
     if (!activeLog) return;
     const text = newGoalInputs[catId]?.trim();
     if (!text) return;
-
     const newCatLog = { ...activeLog.categories[catId] };
     newCatLog.goals = [...newCatLog.goals, text];
-    newCatLog.completedGoals = [...newCatLog.completedGoals, false];
-
-    saveLog({
-      ...activeLog,
-      categories: { ...activeLog.categories, [catId]: newCatLog }
-    });
+    newCatLog.goalStatus = [...newCatLog.goalStatus, 'pending'];
+    saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
     setNewGoalInputs(prev => ({ ...prev, [catId]: '' }));
+  };
+
+  const cycleGoalStatus = (catId: string, idx: number) => {
+    if (!activeLog) return;
+    const newCatLog = { ...activeLog.categories[catId] };
+    const currentStatus = newCatLog.goalStatus[idx] || 'pending';
+    let nextStatus: GoalStatus = 'pending';
+    if (currentStatus === 'pending') nextStatus = 'progress';
+    else if (currentStatus === 'progress') nextStatus = 'completed';
+    else if (currentStatus === 'completed') nextStatus = 'pending';
+    newCatLog.goalStatus[idx] = nextStatus;
+    saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
   };
 
   const handleLinkAdd = (catId: string) => {
     if (!activeLog) return;
     const text = newLinkInputs[catId]?.trim();
     if (!text) return;
-
     const newCatLog = { ...activeLog.categories[catId] };
     newCatLog.attachments = [...(newCatLog.attachments || []), text];
-
-    saveLog({
-      ...activeLog,
-      categories: { ...activeLog.categories, [catId]: newCatLog }
-    });
-    setNewLinkInputs(prev => ({ ...prev, [catId]: '' }));
-  };
-
-  const toggleGoal = (catId: string, idx: number) => {
-    if (!activeLog) return;
-    const newCatLog = { ...activeLog.categories[catId] };
-    newCatLog.completedGoals[idx] = !newCatLog.completedGoals[idx];
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
+    setNewLinkInputs(prev => ({ ...prev, [catId]: '' }));
   };
 
   const updateHours = (catId: string, val: number) => {
@@ -343,16 +452,33 @@ export default function ScholarsCompass() {
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
   };
 
-  // --- Calendar Event Handlers ---
+  const toggleAntiGoal = (agId: string) => {
+      if (!activeLog) return;
+      const current = activeLog.antiGoals[agId] || 'pending';
+      let next: AntiGoalStatus = 'pending';
+      if (current === 'pending') next = 'conquered';
+      else if (current === 'conquered') next = 'succumbed';
+      else next = 'pending';
+      saveLog({ ...activeLog, antiGoals: { ...activeLog.antiGoals, [agId]: next } });
+  };
+
+  const addAntiGoal = () => {
+      const id = `ag_${Date.now()}`;
+      saveConfig({ ...config, antiGoals: [...config.antiGoals, { id, title: 'New Anti-Goal' }]});
+  };
+
+  const deleteAntiGoal = (id: string) => {
+      saveConfig({ ...config, antiGoals: config.antiGoals.filter(ag => ag.id !== id)});
+  };
+  
+  const updateAntiGoalTitle = (id: string, title: string) => {
+      saveConfig({ ...config, antiGoals: config.antiGoals.map(ag => ag.id === id ? {...ag, title} : ag)});
+  };
+
   const addEvent = (date: string) => {
     if (!newEventInput.trim()) return;
     const log = getLogForDate(date);
-    const newEvent: CalendarEvent = {
-      id: `evt_${Date.now()}`,
-      title: newEventInput.trim(),
-      type: 'workshop', // Default
-      completed: false
-    };
+    const newEvent: CalendarEvent = { id: `evt_${Date.now()}`, title: newEventInput.trim(), type: 'workshop', completed: false };
     const updatedLog = { ...log, events: [...(log.events || []), newEvent] };
     saveLog(updatedLog);
     setNewEventInput('');
@@ -364,7 +490,6 @@ export default function ScholarsCompass() {
     saveLog(updatedLog);
   };
 
-  // --- Settings Handlers ---
   const updateCategoryTitle = (id: string, newTitle: string) => {
     const newCats = config.categories.map(c => c.id === id ? { ...c, title: newTitle } : c);
     saveConfig({ ...config, categories: newCats });
@@ -386,54 +511,75 @@ export default function ScholarsCompass() {
     saveConfig({ ...config, categories: newCats });
   };
 
-  // --- Stats Calculation ---
+  // Stats Logic
   const stats = useMemo(() => {
-    if (!logs.length) return null;
-    const recentLogs = logs.slice(-7);
-    
-    const chartData: Record<string, number[]> = {};
-    const weekTotals: Record<string, number> = {};
-    
-    config.categories.forEach(c => {
-      chartData[c.id] = [];
-      weekTotals[c.id] = 0;
-    });
+    const todayStr = getTodayStr();
+    const today = getISTTime();
+    const currentWeekNum = getWeekNumber(today);
+    const currentMonthNum = today.getMonth();
+    const currentYear = today.getFullYear();
 
-    recentLogs.forEach(log => {
-      config.categories.forEach(c => {
-        const hours = log.categories?.[c.id]?.hours || 0;
-        chartData[c.id].push(hours);
-      });
+    const dailyTotals: Record<string, number> = {};
+    const weekTotals: Record<string, number> = {};
+    const monthTotals: Record<string, number> = {};
+
+    config.categories.forEach(c => {
+        dailyTotals[c.id] = 0;
+        weekTotals[c.id] = 0;
+        monthTotals[c.id] = 0;
     });
 
     logs.forEach(log => {
+        const logDate = new Date(log.date);
+        const isToday = log.date === todayStr;
+        const isThisWeek = getWeekNumber(logDate) === currentWeekNum && logDate.getFullYear() === currentYear;
+        const isThisMonth = logDate.getMonth() === currentMonthNum && logDate.getFullYear() === currentYear;
+
         config.categories.forEach(c => {
             const h = log.categories?.[c.id]?.hours || 0;
-            weekTotals[c.id] += h; 
+            if (isToday) dailyTotals[c.id] += h;
+            if (isThisWeek) weekTotals[c.id] += h;
+            if (isThisMonth) monthTotals[c.id] += h;
         });
     });
 
-    return { chartData, weekTotals };
+    return { dailyTotals, weekTotals, monthTotals };
   }, [logs, config]);
 
-  // --- Calendar Render Helpers ---
+  // Library Logic
+  const libraryItems = useMemo(() => {
+    const items: Array<{ date: string; catTitle: string; color: string; link: string; }> = [];
+    const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    sortedLogs.forEach(log => {
+      Object.entries(log.categories).forEach(([catId, catLog]) => {
+        if (catLog.attachments && catLog.attachments.length > 0) {
+          const catDef = config.categories.find(c => c.id === catId);
+          if (catDef) {
+            catLog.attachments.forEach(link => {
+              items.push({ date: log.date, catTitle: catDef.title, color: catDef.color, link: link });
+            });
+          }
+        }
+      });
+    });
+    return items;
+  }, [logs, config]);
+
+  // Calendar Render
   const renderCalendar = () => {
     const daysInMonth = getDaysInMonth(calDate.getFullYear(), calDate.getMonth());
-    const firstDay = getFirstDayOfMonth(calDate.getFullYear(), calDate.getMonth()); // 0-6
+    const firstDay = getFirstDayOfMonth(calDate.getFullYear(), calDate.getMonth()); 
     const days = [];
 
-    // Empty cells for offset
     for (let i = 0; i < firstDay; i++) {
       days.push(<div key={`empty-${i}`} className="h-20 bg-slate-50 border border-slate-100 opacity-50"></div>);
     }
 
-    // Days
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${calDate.getFullYear()}-${String(calDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const log = logs.find(l => l.date === dateStr);
       const hasEvents = log?.events && log.events.length > 0;
-      const hasData = log && Object.values(log.categories).some(c => c.hours > 0 || c.completedGoals.some(Boolean));
-      
+      const rating = log?.rating || 0;
       const isSelected = selectedDate === dateStr;
       const isToday = dateStr === getTodayStr();
 
@@ -450,16 +596,11 @@ export default function ScholarsCompass() {
              <span className={`text-xs font-bold ${isToday ? 'text-indigo-600' : 'text-slate-700'}`}>{d}</span>
              {hasEvents && <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>}
           </div>
-          
           <div className="flex flex-col gap-0.5 mt-1 overflow-hidden">
-             {/* Mini indicators for events */}
+             {rating > 0 && <div className="flex justify-center my-1"><StarRating rating={rating} readOnly /></div>}
              {log?.events?.slice(0, 2).map((ev, i) => (
-               <div key={i} className="text-[8px] bg-rose-100 text-rose-700 rounded px-1 truncate">
-                 {ev.title}
-               </div>
+               <div key={i} className="text-[8px] bg-rose-100 text-rose-700 rounded px-1 truncate">{ev.title}</div>
              ))}
-             {/* Dot for logged work */}
-             {hasData && <div className="self-end w-1.5 h-1.5 rounded-full bg-emerald-400 mt-auto"></div>}
           </div>
         </div>
       );
@@ -481,17 +622,30 @@ export default function ScholarsCompass() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded text-white">
+            <div className="bg-indigo-600 p-1.5 rounded text-white hidden sm:block">
               <BookOpen size={20} />
             </div>
-            <h1 className="font-serif font-bold text-xl tracking-tight text-slate-900 hidden sm:block">Scholar's Compass</h1>
+            <h1 className="font-serif font-bold text-lg tracking-tight text-slate-900">Scholar's Compass</h1>
+            
+            <div className="hidden md:flex items-center gap-3 ml-4 pl-4 border-l border-slate-200">
+               <div className="flex items-center gap-1 text-orange-500" title="Current Streak">
+                  <Flame size={16} className={currentStreak > 0 ? 'fill-orange-500 animate-pulse' : 'text-slate-300'} />
+                  <span className={`font-mono font-bold ${currentStreak > 0 ? 'text-orange-600' : 'text-slate-400'}`}>{currentStreak}</span>
+               </div>
+               <div className="flex items-center gap-1 text-sky-500" title="Streak Freezes Available">
+                  <Snowflake size={16} className="fill-sky-100" />
+                  <span className="font-mono font-bold text-sky-600">{config.streakFreezes}</span>
+               </div>
+            </div>
           </div>
+
           <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
             {[
               { id: 'morning', icon: Sun, label: 'Plan' },
               { id: 'dashboard', icon: CalendarDays, label: 'Track' },
-              { id: 'calendar', icon: CalendarIcon, label: 'Calendar' },
-              { id: 'analytics', icon: BarChart3, label: 'Analyze' },
+              { id: 'calendar', icon: CalendarIcon, label: 'Cal' },
+              { id: 'library', icon: FolderOpen, label: 'Lib' },
+              { id: 'analytics', icon: BarChart3, label: 'Data' },
               { id: 'night', icon: Moon, label: 'Reflect' },
               { id: 'settings', icon: Settings, label: 'Setup' },
             ].map(tab => (
@@ -501,7 +655,7 @@ export default function ScholarsCompass() {
                 className={`p-2 rounded-md transition-all flex items-center gap-2 ${view === tab.id ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
               >
                 <tab.icon size={18} />
-                <span className="hidden md:inline text-xs font-bold uppercase">{tab.label}</span>
+                <span className="hidden lg:inline text-xs font-bold uppercase">{tab.label}</span>
               </button>
             ))}
           </div>
@@ -514,7 +668,6 @@ export default function ScholarsCompass() {
         {view === 'calendar' && (
           <div className="animate-fade-in space-y-6">
             <div className="flex flex-col md:flex-row gap-6">
-              {/* Calendar Grid */}
               <div className="flex-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="font-serif text-xl font-bold text-slate-900">
@@ -534,7 +687,6 @@ export default function ScholarsCompass() {
                 </div>
               </div>
 
-              {/* Selected Day Detail Panel */}
               <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
                 <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100">
                    <div>
@@ -544,10 +696,9 @@ export default function ScholarsCompass() {
                    {selectedDate === getTodayStr() && <div className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Today</div>}
                 </div>
 
-                {/* Event Management */}
                 <div className="mb-6">
                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
-                     <Bell size={12} className="text-rose-500" /> Events & Deadlines
+                     <Bell size={12} className="text-rose-500" /> Events
                    </h3>
                    <div className="space-y-2 mb-3">
                      {getLogForDate(selectedDate).events?.length === 0 && <p className="text-xs text-slate-400 italic">No events scheduled.</p>}
@@ -563,38 +714,105 @@ export default function ScholarsCompass() {
                        value={newEventInput}
                        onChange={(e) => setNewEventInput(e.target.value)}
                        onKeyDown={(e) => e.key === 'Enter' && addEvent(selectedDate)}
-                       placeholder="Add workshop, deadline..."
+                       placeholder="Add workshop..."
                        className="flex-1 text-xs p-2 border border-slate-200 rounded focus:border-rose-500 outline-none"
                      />
                      <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
                    </div>
                 </div>
 
-                {/* Summary of Logs for that day */}
+                {/* Distraction Log in Calendar */}
+                <div className="mb-6">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
+                     <Skull size={12} className="text-slate-400" /> Distraction Log
+                   </h3>
+                   <div className="space-y-2">
+                       {config.antiGoals.map(ag => {
+                           const status = getLogForDate(selectedDate).antiGoals[ag.id] || 'pending';
+                           let badgeClass = 'bg-slate-100 text-slate-400';
+                           if (status === 'conquered') badgeClass = 'bg-emerald-100 text-emerald-700';
+                           if (status === 'succumbed') badgeClass = 'bg-rose-100 text-rose-700';
+                           
+                           return (
+                               <div key={ag.id} className="flex justify-between items-center text-xs">
+                                   <span className="text-slate-600">{ag.title}</span>
+                                   <span className={`px-1.5 py-0.5 rounded uppercase text-[10px] font-bold ${badgeClass}`}>{status === 'pending' ? '-' : status}</span>
+                               </div>
+                           )
+                       })}
+                   </div>
+                </div>
+
                 <div>
                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2">Log Summary</h3>
-                   {Object.entries(getLogForDate(selectedDate).categories).map(([catId, data]) => {
-                     const catDef = config.categories.find(c => c.id === catId);
-                     if (!catDef || (!data.hours && !data.completedGoals.some(Boolean))) return null;
-                     return (
-                       <div key={catId} className="mb-2 text-xs">
-                         <div className={`font-bold text-${catDef.color}-600`}>{catDef.title}</div>
-                         <div className="text-slate-500 ml-2">
-                           {data.hours > 0 && <span>• {data.hours} hrs logged<br/></span>}
-                           {data.completedGoals.filter(Boolean).length > 0 && <span>• {data.completedGoals.filter(Boolean).length} goals met</span>}
-                         </div>
-                       </div>
-                     );
-                   })}
-                   {selectedDate !== getTodayStr() && (
-                     <div className="mt-4 text-[10px] text-slate-400 text-center italic">
-                       To edit log details, switch date to Today or navigate to Tracker view.
-                     </div>
-                   )}
+                   <div className="mb-2">
+                     <StarRating rating={getLogForDate(selectedDate).rating} readOnly />
+                   </div>
+                   <div className="space-y-3">
+                    {Object.entries(getLogForDate(selectedDate).categories).map(([catId, data]) => {
+                        const catDef = config.categories.find(c => c.id === catId);
+                        if (!catDef || (!data.hours && !data.goalStatus?.some(s => s !== 'pending'))) return null;
+                        
+                        const redCount = data.goalStatus.filter(s => s === 'pending').length;
+                        const yellowCount = data.goalStatus.filter(s => s === 'progress').length;
+                        const greenCount = data.goalStatus.filter(s => s === 'completed').length;
+
+                        return (
+                        <div key={catId} className="text-xs border-b border-slate-50 pb-2 last:border-0">
+                            <div className={`font-bold text-${catDef.color}-600 mb-1`}>{catDef.title}</div>
+                            {data.hours > 0 && <div className="text-slate-600 font-mono mb-1">{data.hours} hrs</div>}
+                            <div className="flex gap-2">
+                                {redCount > 0 && <span className="text-rose-600 bg-rose-50 px-1 rounded flex items-center gap-1"><Circle size={8} className="fill-rose-600" /> {redCount} Not Met</span>}
+                                {yellowCount > 0 && <span className="text-amber-600 bg-amber-50 px-1 rounded flex items-center gap-1"><PlayCircle size={8} className="fill-amber-600" /> {yellowCount} Partial</span>}
+                                {greenCount > 0 && <span className="text-emerald-600 bg-emerald-50 px-1 rounded flex items-center gap-1"><CheckCircle2 size={8} className="fill-emerald-600" /> {greenCount} Done</span>}
+                            </div>
+                        </div>
+                        );
+                    })}
+                   </div>
                 </div>
               </div>
             </div>
           </div>
+        )}
+
+        {/* --- VIEW: LIBRARY --- */}
+        {view === 'library' && (
+           <div className="animate-fade-in space-y-6">
+             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100">
+                <h2 className="font-serif text-2xl font-bold text-blue-900 mb-2">Knowledge Repository</h2>
+                <p className="text-blue-800/80">Centralized archive of all files, proofs, and links.</p>
+             </div>
+
+             {libraryItems.length === 0 ? (
+               <div className="text-center py-20 text-slate-400 bg-white rounded-xl border border-slate-200 border-dashed">
+                 <FolderOpen size={48} className="mx-auto mb-4 opacity-50" />
+                 <p>No resources logged yet. Add links in the "Track" tab.</p>
+               </div>
+             ) : (
+               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {libraryItems.map((item, idx) => (
+                    <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
+                       <div className="flex items-center justify-between mb-3">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-${item.color}-50 text-${item.color}-600`}>
+                            {item.catTitle}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400">{item.date}</span>
+                       </div>
+                       <a href={item.link} target="_blank" rel="noreferrer" className="flex items-start gap-3 group-hover:bg-slate-50 p-2 rounded transition-colors">
+                          <div className="bg-slate-100 p-2 rounded text-slate-500">
+                             <ExternalLink size={16} />
+                          </div>
+                          <div className="flex-1 overflow-hidden">
+                             <div className="text-xs font-bold text-slate-700 truncate mb-1">Resource Link</div>
+                             <div className="text-[10px] text-blue-500 truncate">{item.link}</div>
+                          </div>
+                       </a>
+                    </div>
+                  ))}
+               </div>
+             )}
+           </div>
         )}
 
         {/* --- VIEW: SETTINGS --- */}
@@ -602,7 +820,7 @@ export default function ScholarsCompass() {
            <div className="animate-fade-in space-y-6">
              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
-               <div className="space-y-4">
+               <div className="space-y-4 mb-6">
                  {config.categories.map((cat) => (
                    <div key={cat.id} className="flex items-center gap-3">
                      <div className={`w-3 h-3 rounded-full bg-${cat.color}-500`}></div>
@@ -615,7 +833,23 @@ export default function ScholarsCompass() {
                    </div>
                  ))}
                </div>
-               <button onClick={addCategory} className="mt-6 flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700"><Plus size={16} /> Add New Plan</button>
+               <button onClick={addCategory} className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700 mb-8"><Plus size={16} /> Add New Plan</button>
+               
+               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Anti-Goals (Distractions)</h2>
+               <div className="space-y-4 mb-6">
+                 {config.antiGoals.map((ag) => (
+                   <div key={ag.id} className="flex items-center gap-3">
+                     <Skull size={16} className="text-slate-400" />
+                     <input 
+                       value={ag.title}
+                       onChange={(e) => updateAntiGoalTitle(ag.id, e.target.value)}
+                       className="flex-1 p-2 border border-slate-300 rounded text-sm font-bold text-slate-700 focus:border-indigo-500 outline-none"
+                     />
+                     <button onClick={() => deleteAntiGoal(ag.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
+                   </div>
+                 ))}
+               </div>
+               <button onClick={addAntiGoal} className="flex items-center gap-2 text-sm font-bold text-rose-600 hover:text-rose-700"><Plus size={16} /> Add Anti-Goal</button>
              </div>
            </div>
         )}
@@ -623,7 +857,6 @@ export default function ScholarsCompass() {
         {/* --- VIEW: MORNING --- */}
         {view === 'morning' && (
           <div className="animate-fade-in space-y-6">
-            {/* Events Alert */}
             {activeLog.events && activeLog.events.length > 0 && (
               <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl flex items-start gap-3">
                  <AlertCircle className="text-rose-500 shrink-0" size={20} />
@@ -684,20 +917,43 @@ export default function ScholarsCompass() {
                  <span className="text-sm font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded inline-block mt-1">{todayLog?.date}</span>
               </div>
               
-              {/* Today's Events Widget */}
               {activeLog.events && activeLog.events.length > 0 ? (
                  <div className="bg-rose-50 border border-rose-200 px-4 py-2 rounded-lg flex items-center gap-3 animate-pulse-slow">
                     <Bell size={16} className="text-rose-600" />
                     <div className="text-sm text-rose-800 font-bold">
-                      {activeLog.events.length} Event{activeLog.events.length > 1 ? 's' : ''} Today:
-                      <span className="font-normal ml-1">{activeLog.events[0].title} {activeLog.events.length > 1 && '...'}</span>
+                      {activeLog.events.length} Event{activeLog.events.length > 1 ? 's' : ''} Today
                     </div>
                  </div>
-              ) : (
-                <div className="text-sm text-slate-400 italic flex items-center gap-2">
-                   <CheckCircle2 size={14} /> No scheduled events today.
+              ) : null}
+            </div>
+
+            {/* Anti-Goal Section */}
+            <div className="bg-slate-800 p-5 rounded-xl text-slate-200">
+                <h3 className="text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2 text-rose-400">
+                    <ShieldAlert size={16} /> Anti-Goals / Distraction Log
+                </h3>
+                <div className="flex flex-wrap gap-4">
+                    {config.antiGoals.map(ag => {
+                        const status = activeLog.antiGoals[ag.id] || 'pending';
+                        let statusColor = 'bg-slate-700 text-slate-400';
+                        if (status === 'conquered') statusColor = 'bg-emerald-900/50 border border-emerald-500/50 text-emerald-400';
+                        if (status === 'succumbed') statusColor = 'bg-rose-900/50 border border-rose-500/50 text-rose-400';
+                        
+                        return (
+                            <button 
+                                key={ag.id}
+                                onClick={() => toggleAntiGoal(ag.id)}
+                                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${statusColor}`}
+                            >
+                                {ag.title}
+                                <span className="block text-[9px] uppercase font-normal opacity-70 mt-1">
+                                    {status === 'pending' ? '?' : status}
+                                </span>
+                            </button>
+                        );
+                    })}
                 </div>
-              )}
+                <p className="text-[10px] text-slate-500 mt-3 italic">Tap to toggle: Pending → Conquered → Succumbed</p>
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -718,20 +974,39 @@ export default function ScholarsCompass() {
                         <p className="text-sm text-slate-400 italic">No goals set.</p>
                       ) : (
                         <div className="space-y-2">
-                          {catLog.goals.map((g, i) => (
-                            <div 
-                              key={i} 
-                              onClick={() => toggleGoal(cat.id, i)}
-                              className={`flex items-start gap-2 p-1.5 rounded cursor-pointer transition-colors ${catLog.completedGoals[i] ? 'bg-slate-50 opacity-60' : 'hover:bg-slate-50'}`}
-                            >
-                              <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center ${catLog.completedGoals[i] ? 'bg-green-500 border-green-500' : 'border-slate-300'}`}>
-                                {catLog.completedGoals[i] && <CheckCircle2 size={10} className="text-white" />}
-                              </div>
-                              <span className={`text-xs ${catLog.completedGoals[i] ? 'line-through' : 'text-slate-700'}`}>{g}</span>
-                            </div>
-                          ))}
+                          {catLog.goals.map((g, i) => {
+                            const status = catLog.goalStatus?.[i] || 'pending';
+                            let statusClasses = '';
+                            let icon = null;
+                            
+                            if (status === 'progress') {
+                                // Yellow
+                                statusClasses = 'bg-amber-50 border border-amber-300 text-amber-800';
+                                icon = <PlayCircle size={10} className="text-amber-500 fill-amber-100" />;
+                            } else if (status === 'completed') {
+                                // Green
+                                statusClasses = 'bg-emerald-50 border border-emerald-500 text-emerald-800';
+                                icon = <CheckCircle2 size={10} className="text-emerald-500 fill-emerald-100" />;
+                            } else {
+                                // Red (Pending/Not Started)
+                                statusClasses = 'bg-red-50 border border-red-200 text-red-800';
+                                icon = <Circle size={10} className="text-red-300" />;
+                            }
+
+                            return (
+                                <div 
+                                key={i} 
+                                onClick={() => cycleGoalStatus(cat.id, i)}
+                                className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all ${statusClasses}`}
+                                >
+                                <span className={`text-xs ${status === 'completed' ? 'line-through opacity-70' : ''} flex-1`}>{g}</span>
+                                <div className="ml-2">{icon}</div>
+                                </div>
+                            );
+                          })}
                         </div>
                       )}
+                      <p className="text-[9px] text-slate-400 text-right mt-2 italic">Tap to cycle: Red → Yellow → Green</p>
                     </div>
 
                     <div className="mb-4">
@@ -788,25 +1063,39 @@ export default function ScholarsCompass() {
         {/* --- VIEW: ANALYTICS --- */}
         {view === 'analytics' && stats && (
              <div className="animate-fade-in space-y-6">
-                 <h2 className="font-serif text-2xl font-bold text-slate-900">Performance Metrics</h2>
-                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                 <h2 className="font-serif text-2xl font-bold text-slate-900">Performance Matrices</h2>
+                 <p className="text-sm text-slate-500">Longitudinal analysis of temporal investment.</p>
+                 
+                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                      {config.categories.map(cat => (
-                         <div key={cat.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-center">
-                             <div className={`text-xs font-bold uppercase text-${cat.color}-600 mb-1`}>{cat.title}</div>
-                             <div className="text-2xl font-mono font-bold text-slate-800">
-                                 {stats.weekTotals[cat.id]?.toFixed(1)} <span className="text-xs text-slate-400 font-sans">hrs (Total)</span>
+                         <div key={cat.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                             <div className={`flex items-center gap-2 mb-4 text-${cat.color}-600 font-bold uppercase text-xs tracking-wider border-b border-slate-100 pb-2`}>
+                                 <Target size={16} /> {cat.title}
                              </div>
+                             
+                             <ProgressBar 
+                                value={stats.dailyTotals[cat.id]} 
+                                max={6} 
+                                label="Daily Load" 
+                                colorClass={`bg-${cat.color}-500`}
+                                suffix="hrs"
+                             />
+                             <ProgressBar 
+                                value={stats.weekTotals[cat.id]} 
+                                max={40} 
+                                label="Weekly Load" 
+                                colorClass={`bg-${cat.color}-500`}
+                                suffix="hrs"
+                             />
+                             <ProgressBar 
+                                value={stats.monthTotals[cat.id]} 
+                                max={160} 
+                                label="Monthly Load" 
+                                colorClass={`bg-${cat.color}-500`}
+                                suffix="hrs"
+                             />
                          </div>
                      ))}
-                 </div>
-                 
-                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                    <h3 className="text-sm font-bold text-slate-800 mb-6">Recent Distribution</h3>
-                    <div className={`grid grid-cols-${Math.min(config.categories.length, 4)} gap-6`}>
-                        {config.categories.map(cat => (
-                            <BarChart key={cat.id} data={stats.chartData[cat.id]} label={cat.title} colorClass={`fill-${cat.color}-500`} />
-                        ))}
-                    </div>
                  </div>
              </div>
         )}
@@ -823,13 +1112,21 @@ export default function ScholarsCompass() {
             </div>
 
             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-              <label className="block text-sm font-bold text-slate-700 mb-2">Daily Summary & Reflection</label>
-              <textarea 
-                  className="w-full h-32 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none text-slate-700"
-                  value={activeLog.reflection}
-                  onChange={(e) => saveLog({ ...activeLog, reflection: e.target.value })}
-                  placeholder="How did the day go?"
-              />
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-3">Rate your day</label>
+                  <StarRating rating={activeLog.rating} onChange={(r) => saveLog({ ...activeLog, rating: r })} />
+              </div>
+              
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-2">Daily Summary & Reflection</label>
+                  <textarea 
+                      className="w-full h-32 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none text-slate-700"
+                      value={activeLog.reflection}
+                      onChange={(e) => saveLog({ ...activeLog, reflection: e.target.value })}
+                      placeholder="How did the day go?"
+                  />
+              </div>
+
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                 <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>Auto-sync active</div>
                 {istHour === 23 ? (
