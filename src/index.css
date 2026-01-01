@@ -1,0 +1,5 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* Simple reset since we don't have full tailwind setup in this manual mode */
+body { margin: 0; font-family: sans-serif; background: #f8fafc; }
