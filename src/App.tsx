@@ -418,6 +418,20 @@ export default function ScholarsCompass() {
     setNewGoalInputs(prev => ({ ...prev, [catId]: '' }));
   };
 
+  // --- NEW: Remove Goal Handler ---
+  const handleGoalDelete = (catId: string, idx: number) => {
+    if (!activeLog) return;
+    const newCatLog = { ...activeLog.categories[catId] };
+    // Remove the goal and its corresponding status
+    newCatLog.goals = newCatLog.goals.filter((_, i) => i !== idx);
+    newCatLog.goalStatus = newCatLog.goalStatus.filter((_, i) => i !== idx);
+    
+    saveLog({ 
+        ...activeLog, 
+        categories: { ...activeLog.categories, [catId]: newCatLog } 
+    });
+  };
+
   const cycleGoalStatus = (catId: string, idx: number) => {
     if (!activeLog) return;
     const newCatLog = { ...activeLog.categories[catId] };
@@ -881,8 +895,18 @@ export default function ScholarsCompass() {
                     <h3 className={`text-xs font-bold uppercase tracking-wider mb-3 text-${cat.color}-600`}>{cat.title}</h3>
                     <div className="space-y-2 mb-3">
                       {activeLog.categories[cat.id]?.goals.map((g, i) => (
-                        <div key={i} className="flex items-center text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100">
-                          <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400 mr-2`}></div>{g}
+                        <div key={i} className="flex items-center justify-between text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100 group">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400`}></div>
+                            <span>{g}</span>
+                          </div>
+                          <button 
+                            onClick={() => handleGoalDelete(cat.id, i)}
+                            className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                            title="Remove Goal"
+                          >
+                            <X size={12} />
+                          </button>
                         </div>
                       ))}
                     </div>
