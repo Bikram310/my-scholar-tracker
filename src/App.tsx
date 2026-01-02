@@ -1691,6 +1691,9 @@ export default function ScholarsCompass() {
                        <option value="reminder">Reminder</option>
                        <option value="leave">Leave</option>
                      </select>
+                      <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
+                   </div>
+                
                      <label className="mt-1 flex items-center gap-1 text-[10px] text-slate-500">
   <input
     type="checkbox"
@@ -1700,9 +1703,7 @@ export default function ScholarsCompass() {
   Email reminders
 </label>
                      </div>
-                     <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
-                   </div>
-                
+                    
 
                 {/* Distraction Log in Calendar */}
                 <div className="mb-6">
