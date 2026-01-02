@@ -1632,20 +1632,7 @@ export default function ScholarsCompass() {
                    >
                      Add events
                    </button>
-                   <button 
-                     onClick={removeBulkEvents}
-                     className="text-xs px-3 py-2 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                     disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
-                   >
-                     Remove matching
-                   </button>
-                   <button 
-                     onClick={fillRangeFromSelection}
-                     className="text-xs px-3 py-2 rounded border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-                     disabled={bulkSelectedDates.size < 2}
-                   >
-                     Fill between first/last
-                   </button>
+                  
                    <button 
                      onClick={clearBulkSelection}
                      className="text-xs px-3 py-2 rounded border border-slate-200 text-slate-500 hover:bg-slate-100"
