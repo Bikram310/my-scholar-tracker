@@ -293,6 +293,7 @@ export default function ScholarsCompass() {
   const [bulkEventTitle, setBulkEventTitle] = useState('');
   const [bulkEventType, setBulkEventType] = useState<'workshop' | 'deadline' | 'reminder' | 'leave'>('workshop');
   const [bulkEmailReminder, setBulkEmailReminder] = useState(false);
+  const [bulkAnchorDate, setBulkAnchorDate] = useState<string | null>(null);
   
   // Temp state
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
@@ -522,23 +523,31 @@ export default function ScholarsCompass() {
   useEffect(() => {
     const timers: NodeJS.Timeout[] = [];
     if (user?.email) {
+      const earliestByKey = new Map<string, { title: string; type: string; date: string }>();
       logs.forEach(log => {
         (log.events || []).forEach(evt => {
           if (!evt.reminderEmail) return;
-          const eventDate = new Date(`${log.date}T00:00:00+05:30`);
-          const now = new Date();
-          const offsets = [24, 12];
-          offsets.forEach(hours => {
-            const fireTime = new Date(eventDate.getTime() - hours * 60 * 60 * 1000);
-            const delay = fireTime.getTime() - now.getTime();
-            if (delay > 0 && delay < 1000 * 60 * 60 * 24 * 14) { // limit to 14 days ahead
-              const timer = setTimeout(() => {
-                const mailto = `mailto:${user.email}?subject=${encodeURIComponent(`Reminder: ${evt.title}`)}&body=${encodeURIComponent(`This is your ${hours} hour reminder for ${evt.title} on ${log.date}.`)}`;
-                window.open(mailto, '_blank');
-              }, delay);
-              timers.push(timer);
-            }
-          });
+          const key = `${evt.title}|${evt.type}`;
+          const existing = earliestByKey.get(key);
+          if (!existing || log.date < existing.date) {
+            earliestByKey.set(key, { title: evt.title, type: evt.type, date: log.date });
+          }
+        });
+      });
+      const now = new Date();
+      earliestByKey.forEach(({ title, date }) => {
+        const eventDate = new Date(`${date}T00:00:00+05:30`);
+        const offsets = [24, 12];
+        offsets.forEach(hours => {
+          const fireTime = new Date(eventDate.getTime() - hours * 60 * 60 * 1000);
+          const delay = fireTime.getTime() - now.getTime();
+          if (delay > 0 && delay < 1000 * 60 * 60 * 24 * 30) { // limit to 30 days ahead
+            const timer = setTimeout(() => {
+              const mailto = `mailto:${user.email}?subject=${encodeURIComponent(`Reminder: ${title}`)}&body=${encodeURIComponent(`This is your ${hours} hour reminder for ${title} on ${date}.`)}`;
+              window.open(mailto, '_blank');
+            }, delay);
+            timers.push(timer);
+          }
         });
       });
     }
@@ -840,10 +849,30 @@ export default function ScholarsCompass() {
     saveLog(updatedLog);
   };
 
+  const getDateRange = (start: string, end: string) => {
+    const dates: string[] = [];
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return [start];
+    const dir = s <= e ? 1 : -1;
+    let current = new Date(start);
+    while ((dir === 1 && current <= e) || (dir === -1 && current >= e)) {
+      dates.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + dir);
+    }
+    return dates;
+  };
+
   const toggleBulkDate = (date: string) => {
     setBulkSelectedDates(prev => {
       const next = new Set(prev);
-      if (next.has(date)) next.delete(date); else next.add(date);
+      const already = next.has(date);
+      if (bulkSelectMode && !already && bulkAnchorDate) {
+        getDateRange(bulkAnchorDate, date).forEach(d => next.add(d));
+      } else {
+        if (already) next.delete(date); else next.add(date);
+      }
+      setBulkAnchorDate(date);
       return next;
     });
   };
@@ -869,6 +898,20 @@ export default function ScholarsCompass() {
     setBulkEmailReminder(false);
     clearBulkSelection();
     setBulkSelectMode(false);
+    setBulkAnchorDate(null);
+  };
+
+  const removeBulkEvents = () => {
+    if (!bulkEventTitle.trim() || bulkSelectedDates.size === 0) return;
+    bulkSelectedDates.forEach(date => {
+      const log = getLogForDate(date);
+      const updatedLog = { 
+        ...log, 
+        events: (log.events || []).filter(ev => !(ev.title === bulkEventTitle.trim() && ev.type === bulkEventType))
+      };
+      saveLog(updatedLog);
+    });
+    clearBulkSelection();
   };
 
   const updateCategoryTitle = (id: string, newTitle: string) => {
@@ -1497,7 +1540,7 @@ export default function ScholarsCompass() {
                      <CalendarIcon size={12} /> Bulk date selection
                    </div>
                    <button 
-                     onClick={() => { setBulkSelectMode(!bulkSelectMode); if (!bulkSelectMode) clearBulkSelection(); }}
+                     onClick={() => { setBulkSelectMode(!bulkSelectMode); if (!bulkSelectMode) { clearBulkSelection(); setBulkAnchorDate(null); } }}
                      className={`text-[11px] px-2 py-1 rounded font-bold ${bulkSelectMode ? 'bg-indigo-100 text-indigo-700' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                    >
                      {bulkSelectMode ? 'Selecting...' : 'Start selecting'}
@@ -1530,7 +1573,7 @@ export default function ScholarsCompass() {
                  </div>
                  <label className="flex items-center gap-2 text-[11px] text-slate-600 mb-2">
                    <input type="checkbox" checked={bulkEmailReminder} onChange={(e) => setBulkEmailReminder(e.target.checked)} />
-                   Email reminder (opens mail client 24h & 12h before, tab must be open)
+                   Email reminder (opens mail client 24h & 12h before first date, tab must be open)
                  </label>
                  <div className="flex gap-2">
                    <button 
@@ -1539,6 +1582,13 @@ export default function ScholarsCompass() {
                      disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
                    >
                      Add to selected dates
+                   </button>
+                   <button 
+                     onClick={removeBulkEvents}
+                     className="text-xs px-3 py-2 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                     disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
+                   >
+                     Remove from selected dates
                    </button>
                    <button 
                      onClick={clearBulkSelection}
