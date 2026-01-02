@@ -1698,7 +1698,7 @@ export default function ScholarsCompass() {
                      </div>
                      <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
                    </div>
-                </div>
+                
 
                 {/* Distraction Log in Calendar */}
                 <div className="mb-6">
