@@ -69,7 +69,9 @@ const firebaseConfig = {
   measurementId: "G-71LZ1K6QH9"
 };
 
-const appId = 'research-tracker-v1'; // Internal App ID for database structure
+// CRITICAL: This ID determines where data is stored in the DB. 
+// NEVER change this string ('research-tracker-v1') or users will lose access to their old data.
+const appId = 'research-tracker-v1'; 
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -405,7 +407,13 @@ export default function ScholarsCompass() {
   const activeLog = useMemo(() => {
     if (!todayLog) return null;
     const mergedLog = { ...todayLog };
+    
+    // --- MIGRATION / SAFETY LOGIC ---
+    // This logic ensures that if you add new features (e.g. 'waterIntake'), 
+    // it hydrates old logs with default values so the app doesn't crash.
+    
     config.categories.forEach(cat => {
+      // 1. Ensure category object exists
       if (!mergedLog.categories[cat.id]) {
         mergedLog.categories[cat.id] = {
           goals: [],
@@ -416,13 +424,21 @@ export default function ScholarsCompass() {
         };
       }
       const catLog = mergedLog.categories[cat.id];
+      // 2. Ensure Arrays Exist
       if (!catLog.goalStatus) catLog.goalStatus = [];
+      if (!catLog.attachments) catLog.attachments = []; // Ensure attachments array exists
+      
+      // 3. Backfill status for existing goals if missing
       while (catLog.goalStatus.length < catLog.goals.length) catLog.goalStatus.push('pending');
     });
+
+    // 4. Ensure new top-level features exist
     if (!mergedLog.antiGoals) mergedLog.antiGoals = {};
-    config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
     if (!mergedLog.events) mergedLog.events = [];
     if (mergedLog.rating === undefined) mergedLog.rating = 0;
+    
+    config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
+
     return mergedLog;
   }, [todayLog, config]);
 
