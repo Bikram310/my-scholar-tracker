@@ -269,7 +269,14 @@ export default function ScholarsCompass() {
   // --- Auth Logic ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+      // FIX 1: If user is anonymous (leftover from previous testing), sign them out automatically
+      // This ensures the "Login Screen" appears for everyone initially.
+      if (currentUser?.isAnonymous) {
+        signOut(auth);
+        setUser(null);
+      } else {
+        setUser(currentUser);
+      }
       setAuthLoading(false);
     });
     return () => unsubscribe();
@@ -292,7 +299,7 @@ export default function ScholarsCompass() {
 
   // --- Data Fetching ---
   useEffect(() => {
-    if (!user || !appId) return;
+    if (!user || user.isAnonymous || !appId) return;
 
     // 1. Fetch User Config
     const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
@@ -305,8 +312,13 @@ export default function ScholarsCompass() {
             streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2
         });
       } else {
-        setDoc(configRef, { categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
+        setDoc(configRef, { categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 })
+          .catch(e => console.error("Config Init Error", e));
       }
+    }).catch(err => {
+      console.error("Config Fetch Error", err);
+      // Even if config fails, we stop loading to prevent white screen
+      setDataLoading(false); 
     });
 
     // 2. Fetch Logs
@@ -333,6 +345,10 @@ export default function ScholarsCompass() {
         if (fetchedLogs.length === 0) setView('morning');
       }
       setDataLoading(false);
+    }, (error) => {
+      // FIX 2: Add error handler to prevent infinite loading spinner
+      console.error("Data Listen Error:", error);
+      setDataLoading(false); 
     });
 
     return () => unsubscribe();
@@ -661,7 +677,7 @@ export default function ScholarsCompass() {
 
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading...</div>;
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  if (!user || user.isAnonymous) return <LoginScreen onLogin={handleLogin} />;
   if (dataLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Syncing Scholar's Log...</div>;
 
   return (
