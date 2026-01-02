@@ -24,7 +24,6 @@ import {
   Moon, 
   Sun, 
   BarChart3, 
-  CheckCircle2, 
   Clock, 
   Save, 
   ChevronRight,
@@ -42,6 +41,7 @@ import {
   Bell,
   Circle,
   PlayCircle,
+  CheckCircle2,
   FolderOpen,
   ExternalLink,
   Flame,
@@ -51,31 +51,24 @@ import {
   Skull,
   Target,
   LogOut,
-  LogIn
+  LogIn,
+  UploadCloud,
+  HardDrive
 } from 'lucide-react';
 
-// --- Firebase Configuration & Initialization ---
-let firebaseConfig;
-let appId = 'research-tracker-v1';
+// --- Firebase Configuration ---
+// Using your specific credentials
+const firebaseConfig = {
+  apiKey: "AIzaSyDWzyI8IwUPIui6NC4WztO3tPIT0MVP9eU",
+  authDomain: "research-tracker-6c03c.firebaseapp.com",
+  projectId: "research-tracker-6c03c",
+  storageBucket: "research-tracker-6c03c.firebasestorage.app",
+  messagingSenderId: "588669594482",
+  appId: "1:588669594482:web:8ec15eb791d16603e24beb",
+  measurementId: "G-71LZ1K6QH9"
+};
 
-// @ts-ignore
-if (typeof __firebase_config !== 'undefined') {
-  // @ts-ignore
-  firebaseConfig = JSON.parse(__firebase_config);
-  // @ts-ignore
-  if (typeof __app_id !== 'undefined') appId = __app_id;
-} else {
-  // --- FOR VERCEL / LOCAL DEPLOYMENT ---
-  firebaseConfig = {
-    apiKey: "AIzaSyDWzyI8IwUPIui6NC4WztO3tPIT0MVP9eU",
-    authDomain: "research-tracker-6c03c.firebaseapp.com",
-    projectId: "research-tracker-6c03c",
-    storageBucket: "research-tracker-6c03c.firebasestorage.app",
-    messagingSenderId: "588669594482",
-    appId: "1:588669594482:web:8ec15eb791d16603e24beb",
-    measurementId: "G-71LZ1K6QH9"
-  };
-}
+const appId = 'research-tracker-v1'; // Internal App ID for database structure
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -110,7 +103,7 @@ interface CategoryLog {
   goalStatus: GoalStatus[]; 
   hours: number;
   notes: string;
-  attachments: string[];
+  attachments: string[]; // Can be URLs or Drive Links
 }
 
 interface DailyLog {
@@ -119,7 +112,7 @@ interface DailyLog {
   reflection: string;
   rating: number; // 0-5 stars
   events: CalendarEvent[];
-  antiGoals: Record<string, AntiGoalStatus>; // id -> status
+  antiGoals: Record<string, AntiGoalStatus>;
 }
 
 interface UserConfig {
@@ -235,6 +228,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => (
 export default function ScholarsCompass() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   
   // State
   const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
@@ -247,6 +241,9 @@ export default function ScholarsCompass() {
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
   
+  // File Upload State
+  const [uploading, setUploading] = useState<string | null>(null);
+
   // Calendar State
   const [calDate, setCalDate] = useState(getISTTime());
   const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
@@ -282,24 +279,35 @@ export default function ScholarsCompass() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+          setGoogleAccessToken(credential.accessToken);
+      }
     } catch (error) {
       console.error("Login failed", error);
-      alert("Authentication failed. Please check your domain settings in Firebase.");
+      alert("Authentication failed. Ensure 'https://my-scholar-tracker.vercel.app' is added to Authorized Domains in Firebase Console.");
     }
+  };
+
+  const handleReAuth = async () => {
+      await handleLogin();
   };
 
   const handleLogout = async () => {
     await signOut(auth);
-    setLogs([]); // Clear local data on logout
+    setLogs([]);
     setTodayLog(null);
+    setGoogleAccessToken(null);
   };
 
   // --- Data Fetching ---
   useEffect(() => {
     if (!user || user.isAnonymous || !appId) return;
 
-    // 1. Fetch User Config
     const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
     getDoc(configRef).then(snap => {
       if (snap.exists()) {
@@ -318,7 +326,6 @@ export default function ScholarsCompass() {
       setDataLoading(false); 
     });
 
-    // 2. Fetch Logs
     const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'daily_logs'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs: DailyLog[] = [];
@@ -366,8 +373,6 @@ export default function ScholarsCompass() {
   const activeLog = useMemo(() => {
     if (!todayLog) return null;
     const mergedLog = { ...todayLog };
-    
-    // Merge Categories
     config.categories.forEach(cat => {
       if (!mergedLog.categories[cat.id]) {
         mergedLog.categories[cat.id] = {
@@ -380,22 +385,12 @@ export default function ScholarsCompass() {
       }
       const catLog = mergedLog.categories[cat.id];
       if (!catLog.goalStatus) catLog.goalStatus = [];
-      while (catLog.goalStatus.length < catLog.goals.length) {
-        catLog.goalStatus.push('pending');
-      }
+      while (catLog.goalStatus.length < catLog.goals.length) catLog.goalStatus.push('pending');
     });
-
-    // Merge Anti-Goals
     if (!mergedLog.antiGoals) mergedLog.antiGoals = {};
-    config.antiGoals.forEach(ag => {
-        if (!mergedLog.antiGoals[ag.id]) {
-            mergedLog.antiGoals[ag.id] = 'pending';
-        }
-    });
-    
+    config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
     if (!mergedLog.events) mergedLog.events = [];
     if (mergedLog.rating === undefined) mergedLog.rating = 0;
-
     return mergedLog;
   }, [todayLog, config]);
 
@@ -403,9 +398,7 @@ export default function ScholarsCompass() {
     if (!user) return;
     try {
       await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logToSave.date), logToSave);
-      if (logToSave.date === getTodayStr()) {
-        setTodayLog(logToSave);
-      }
+      if (logToSave.date === getTodayStr()) setTodayLog(logToSave);
     } catch (e) { console.error(e); }
   };
 
@@ -422,36 +415,25 @@ export default function ScholarsCompass() {
     const today = getTodayStr();
     let streak = 0;
     let expectedDate = new Date(getISTTime());
-    
     const isTodayActive = (log: DailyLog) => {
         if (!log) return false;
         const hasHours = Object.values(log.categories).some(c => c.hours > 0);
         const hasGoals = Object.values(log.categories).some(c => c.goalStatus.some(s => s !== 'pending'));
         return log.rating > 0 || hasHours || hasGoals;
     };
-
     let logIdx = 0;
     const todayLog = sortedLogs.find(l => l.date === today);
-    
     if (todayLog && isTodayActive(todayLog)) {
-        streak = 1;
-        expectedDate.setDate(expectedDate.getDate() - 1); 
+        streak = 1; expectedDate.setDate(expectedDate.getDate() - 1); 
     } else if (sortedLogs.length > 0 && sortedLogs[0].date === today) {
-        logIdx = 1;
-        expectedDate.setDate(expectedDate.getDate() - 1);
+        logIdx = 1; expectedDate.setDate(expectedDate.getDate() - 1);
     }
-
     while (logIdx < sortedLogs.length) {
         const log = sortedLogs[logIdx];
         if (log.date === expectedDate.toISOString().split('T')[0]) {
-            if (isTodayActive(log)) {
-                streak++;
-                expectedDate.setDate(expectedDate.getDate() - 1);
-            } else { break; }
+            if (isTodayActive(log)) { streak++; expectedDate.setDate(expectedDate.getDate() - 1); } else { break; }
             logIdx++;
-        } else if (new Date(log.date) > expectedDate) {
-            logIdx++;
-        } else { break; }
+        } else if (new Date(log.date) > expectedDate) { logIdx++; } else { break; }
     }
     return streak;
   }, [logs]);
@@ -487,6 +469,51 @@ export default function ScholarsCompass() {
     else if (currentStatus === 'completed') nextStatus = 'pending';
     newCatLog.goalStatus[idx] = nextStatus;
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
+  };
+
+  // --- GOOGLE DRIVE UPLOAD HANDLER ---
+  const handleFileUpload = async (catId: string, file: File) => {
+    if (!activeLog || !user) return;
+    
+    if (!googleAccessToken) {
+        const confirm = window.confirm("To upload to Drive, we need to refresh your secure session. Proceed?");
+        if (confirm) await handleReAuth();
+        else return;
+    }
+
+    setUploading(catId);
+    try {
+        const metadata = {
+            name: `[Scholar] ${file.name}`,
+            mimeType: file.type,
+            parents: [] 
+        };
+
+        const form = new FormData();
+        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        form.append('file', file);
+
+        const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${googleAccessToken}` },
+            body: form
+        });
+
+        if (!res.ok) throw new Error("Drive API Error");
+
+        const data = await res.json();
+        const driveLink = data.webViewLink;
+        
+        const newCatLog = { ...activeLog.categories[catId] };
+        newCatLog.attachments = [...(newCatLog.attachments || []), driveLink];
+        saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
+        
+    } catch (error: any) {
+        console.error("Upload failed", error);
+        alert("Upload failed. Session may have expired. Please click your profile pic to re-login.");
+    } finally {
+        setUploading(null);
+    }
   };
 
   const handleLinkAdd = (catId: string) => {
@@ -728,11 +755,16 @@ export default function ScholarsCompass() {
                 <img 
                   src={user.photoURL} 
                   alt={user.displayName || "User"} 
-                  className="w-8 h-8 rounded-full border border-slate-200 shadow-sm"
-                  title={user.displayName || user.email || ""}
+                  className="w-8 h-8 rounded-full border border-slate-200 shadow-sm cursor-pointer hover:ring-2 hover:ring-indigo-300"
+                  onClick={handleReAuth}
+                  title="Click to refresh Drive session"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs border border-indigo-200" title={user.displayName || user.email || ""}>
+                <div 
+                    className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs border border-indigo-200 cursor-pointer" 
+                    onClick={handleReAuth}
+                    title="Click to refresh Drive session"
+                >
                   {user.displayName?.[0] || user.email?.[0] || 'U'}
                 </div>
               )}
@@ -887,10 +919,12 @@ export default function ScholarsCompass() {
                        </div>
                        <a href={item.link} target="_blank" rel="noreferrer" className="flex items-start gap-3 group-hover:bg-slate-50 p-2 rounded transition-colors">
                           <div className="bg-slate-100 p-2 rounded text-slate-500">
-                             <ExternalLink size={16} />
+                             {item.link.includes('drive.google.com') ? <HardDrive size={16} /> : (item.link.includes('firebasestorage') ? <UploadCloud size={16} /> : <ExternalLink size={16} />)}
                           </div>
                           <div className="flex-1 overflow-hidden">
-                             <div className="text-xs font-bold text-slate-700 truncate mb-1">Resource Link</div>
+                             <div className="text-xs font-bold text-slate-700 truncate mb-1">
+                                {item.link.includes('drive.google.com') ? 'Google Drive File' : 'External Link'}
+                             </div>
                              <div className="text-[10px] text-blue-500 truncate">{item.link}</div>
                           </div>
                        </a>
@@ -1119,7 +1153,7 @@ export default function ScholarsCompass() {
 
                     <div className="mb-4">
                         <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
-                            <Paperclip size={10} /> Proofs / Files
+                            <HardDrive size={10} /> Proofs / Drive Files
                         </h4>
                         <div className="space-y-1 mb-2">
                              {catLog?.attachments?.map((link, i) => (
@@ -1128,7 +1162,7 @@ export default function ScholarsCompass() {
                                  </a>
                              ))}
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 items-center">
                             <input 
                                 value={newLinkInputs[cat.id] || ''}
                                 onChange={(e) => setNewLinkInputs({ ...newLinkInputs, [cat.id]: e.target.value })}
@@ -1136,7 +1170,22 @@ export default function ScholarsCompass() {
                                 placeholder="Paste URL..."
                                 className="flex-1 text-[10px] p-1 border border-slate-200 rounded focus:border-indigo-500 outline-none"
                             />
-                            <button onClick={() => handleLinkAdd(cat.id)} className="px-2 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"><Plus size={12} /></button>
+                            
+                            <label className={`cursor-pointer px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded hover:bg-indigo-100 flex items-center justify-center h-full ml-1 ${uploading === cat.id ? 'opacity-50 pointer-events-none' : ''}`} title="Upload to Drive">
+                                <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    onChange={(e) => e.target.files && e.target.files[0] && handleFileUpload(cat.id, e.target.files[0])}
+                                    disabled={!!uploading}
+                                />
+                                {uploading === cat.id ? (
+                                    <div className="animate-spin h-3 w-3 border-2 border-indigo-500 rounded-full border-t-transparent"></div>
+                                ) : (
+                                    <UploadCloud size={14} />
+                                )}
+                            </label>
+
+                            <button onClick={() => handleLinkAdd(cat.id)} className="px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 ml-1"><Plus size={14} /></button>
                         </div>
                     </div>
 
