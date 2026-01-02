@@ -62,7 +62,8 @@ import {
   Heart,
   Copy,
   Grid,
-  Printer
+  Printer,
+  HelpCircle
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
