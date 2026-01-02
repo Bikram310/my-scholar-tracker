@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -161,12 +161,7 @@ const defaultHabits: HabitDef[] = [
   { id: 'h_read', title: 'Read Non-Academic' }
 ];
 
-const getISTTime = () => {
-  const now = new Date();
-  const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-  const istOffset = 5.5 * 60 * 60 * 1000; 
-  return new Date(utc + istOffset);
-};
+const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 
 const getTodayStr = () => getISTTime().toISOString().split('T')[0];
 
@@ -424,20 +419,29 @@ export default function ScholarsCompass() {
     return () => unsubscribe();
   }, [user]);
 
+  const syncTodayLogToIST = useCallback(() => {
+    const newDate = getTodayStr();
+    setTodayLog((prev) => {
+      if (prev?.date === newDate) return prev;
+      const existing = logs.find(l => l.date === newDate);
+      const freshLog = existing || createEmptyLog(newDate);
+      setSelectedDate(newDate);
+      if (!existing) setView('morning');
+      return freshLog;
+    });
+  }, [logs]);
+
   // --- Date Rollover Watcher (IST) ---
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newDate = getTodayStr();
-      if (todayLog?.date !== newDate) {
-        const existing = logs.find(l => l.date === newDate);
-        const freshLog = existing || createEmptyLog(newDate);
-        setTodayLog(freshLog);
-        setSelectedDate(newDate);
-        if (!existing) setView('morning');
-      }
-    }, 60 * 1000);
-    return () => clearInterval(interval);
-  }, [todayLog, logs]);
+    syncTodayLogToIST();
+    const interval = setInterval(syncTodayLogToIST, 60 * 1000);
+    const handleVisibility = () => document.visibilityState === 'visible' && syncTodayLogToIST();
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [syncTodayLogToIST]);
 
   // --- Core Logic ---
 
