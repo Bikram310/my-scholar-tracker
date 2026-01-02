@@ -269,8 +269,6 @@ export default function ScholarsCompass() {
   // --- Auth Logic ---
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      // FIX 1: If user is anonymous (leftover from previous testing), sign them out automatically
-      // This ensures the "Login Screen" appears for everyone initially.
       if (currentUser?.isAnonymous) {
         signOut(auth);
         setUser(null);
@@ -317,7 +315,6 @@ export default function ScholarsCompass() {
       }
     }).catch(err => {
       console.error("Config Fetch Error", err);
-      // Even if config fails, we stop loading to prevent white screen
       setDataLoading(false); 
     });
 
@@ -346,7 +343,6 @@ export default function ScholarsCompass() {
       }
       setDataLoading(false);
     }, (error) => {
-      // FIX 2: Add error handler to prevent infinite loading spinner
       console.error("Data Listen Error:", error);
       setDataLoading(false); 
     });
@@ -725,13 +721,29 @@ export default function ScholarsCompass() {
                 </button>
                 ))}
             </div>
-            <button 
-                onClick={handleLogout} 
-                className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
-                title="Sign Out"
-            >
-                <LogOut size={20} />
-            </button>
+            
+            {/* User Profile & Logout */}
+            <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200">
+              {user?.photoURL ? (
+                <img 
+                  src={user.photoURL} 
+                  alt={user.displayName || "User"} 
+                  className="w-8 h-8 rounded-full border border-slate-200 shadow-sm"
+                  title={user.displayName || user.email || ""}
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs border border-indigo-200" title={user.displayName || user.email || ""}>
+                  {user.displayName?.[0] || user.email?.[0] || 'U'}
+                </div>
+              )}
+              <button 
+                  onClick={handleLogout} 
+                  className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
+                  title="Sign Out"
+              >
+                  <LogOut size={20} />
+              </button>
+            </div>
           </div>
         </div>
       </header>
