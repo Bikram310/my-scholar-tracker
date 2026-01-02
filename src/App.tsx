@@ -59,7 +59,9 @@ import {
   History,
   ShieldCheck,
   Activity,
-  Heart
+  Heart,
+  Copy,
+  Grid
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -507,6 +509,44 @@ export default function ScholarsCompass() {
     return streak;
   }, [logs]);
 
+  // --- Heatmap Data Calculation ---
+  const heatmapData = useMemo(() => {
+      // Generate last 16 weeks (approx 112 days)
+      const days = [];
+      const today = new Date();
+      // Start from a Sunday approx 16 weeks ago to align with grid
+      const endDate = new Date(today);
+      const startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - (15 * 7) - startDate.getDay()); // 15 weeks back, align to Sunday
+
+      const dateMap = new Map();
+      logs.forEach(l => {
+          let score = 0;
+          const totalHours = Object.values(l.categories).reduce((acc, c) => acc + (c.hours || 0), 0);
+          if (totalHours > 0) score = 1;
+          if (totalHours > 2) score = 2;
+          if (totalHours > 5) score = 3;
+          if (totalHours > 8) score = 4;
+          dateMap.set(l.date, score);
+      });
+
+      let current = new Date(startDate);
+      // Generate days until we reach the Saturday after today (or today)
+      // We want full weeks for the grid
+      const endGrid = new Date(today);
+      endGrid.setDate(endGrid.getDate() + (6 - endGrid.getDay()));
+
+      while (current <= endGrid) {
+          const dStr = current.toISOString().split('T')[0];
+          days.push({
+              date: dStr,
+              score: dateMap.get(dStr) || 0
+          });
+          current.setDate(current.getDate() + 1);
+      }
+      return days;
+  }, [logs]);
+
   // --- Handlers ---
 
   const handleGoalAdd = (catId: string) => {
@@ -745,6 +785,64 @@ export default function ScholarsCompass() {
 
     return { dailyTotals, weekTotals, monthTotals };
   }, [logs, config]);
+
+  const generateWeeklyReport = () => {
+    const today = new Date();
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(today.getDate() - 7);
+    
+    // Sort logs descending for the report
+    const recentLogs = logs.filter(l => new Date(l.date) >= oneWeekAgo && new Date(l.date) <= today)
+                           .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    let report = `WEEKLY SCHOLAR REPORT\n${oneWeekAgo.toDateString()} - ${today.toDateString()}\n\n`;
+    
+    // 1. Time Investment
+    report += `TIME INVESTMENT:\n`;
+    let totalHours = 0;
+    config.categories.forEach(cat => {
+      const catHours = recentLogs.reduce((acc, log) => acc + (log.categories[cat.id]?.hours || 0), 0);
+      totalHours += catHours;
+      if (catHours > 0) report += `- ${cat.title}: ${catHours.toFixed(1)} hrs\n`;
+    });
+    report += `TOTAL: ${totalHours.toFixed(1)} hrs\n\n`;
+
+    // 2. Key Achievements (Green Goals)
+    report += `KEY ACHIEVEMENTS:\n`;
+    let achievementCount = 0;
+    recentLogs.forEach(log => {
+      Object.entries(log.categories).forEach(([catId, data]) => {
+        const greenGoals = data.goals.filter((_, i) => data.goalStatus[i] === 'completed');
+        if (greenGoals.length > 0) {
+            report += `[${log.date}] ${config.categories.find(c=>c.id===catId)?.title || 'Task'}:\n`;
+            greenGoals.forEach(g => report += `  ✓ ${g}\n`);
+            achievementCount += greenGoals.length;
+        }
+      });
+    });
+    if (achievementCount === 0) report += "No completed goals logged.\n";
+    report += "\n";
+
+    // 3. Field Notes Summary
+    report += `FIELD NOTES HIGHLIGHTS:\n`;
+    let notesCount = 0;
+    recentLogs.forEach(log => {
+        const hasNotes = Object.values(log.categories).some(c => c.notes && c.notes.trim().length > 0);
+        if (hasNotes) {
+            report += `--- ${log.date} ---\n`;
+            Object.entries(log.categories).forEach(([catId, data]) => {
+                if (data.notes && data.notes.trim().length > 0) {
+                     report += `${config.categories.find(c=>c.id===catId)?.title}: ${data.notes}\n`;
+                }
+            });
+            notesCount++;
+        }
+    });
+    if (notesCount === 0) report += "No notes recorded.\n";
+
+    navigator.clipboard.writeText(report);
+    alert("Weekly Report copied to clipboard!");
+  };
 
   // Library Logic
   const libraryItems = useMemo(() => {
@@ -1166,6 +1264,7 @@ export default function ScholarsCompass() {
                   ))}
                   {renderCalendar()}
                 </div>
+                <div className="mt-4 text-xs text-center text-slate-400 italic">Double-click a date to view full history (Time Machine)</div>
               </div>
 
               <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
@@ -1680,6 +1779,60 @@ export default function ScholarsCompass() {
         {/* --- VIEW: ANALYTICS --- */}
         {view === 'analytics' && stats && (
              <div className="animate-fade-in space-y-6">
+                 
+                 {/* Supervisor Sync Section */}
+                 <div className="bg-indigo-900 text-white p-6 rounded-xl shadow-lg mb-8">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h2 className="font-serif text-2xl font-bold flex items-center gap-2">
+                                <ShieldCheck size={24} className="text-indigo-300" /> 
+                                Supervisor Sync
+                            </h2>
+                            <p className="text-indigo-200 text-sm mt-1 max-w-lg">
+                                Generate a consolidated report of your week's progress, including completed objectives, hours logged, and key field notes.
+                            </p>
+                        </div>
+                        <button 
+                            onClick={generateWeeklyReport}
+                            className="bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-colors shadow-md"
+                        >
+                            <Copy size={16} /> Copy Weekly Report
+                        </button>
+                    </div>
+                 </div>
+
+                 {/* Consistency Heatmap */}
+                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
+                    <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
+                        <Grid size={16} className="text-emerald-500" /> Consistency Heatmap (Last 16 Weeks)
+                    </h3>
+                    <div className="flex flex-wrap gap-1">
+                        {heatmapData.map((day, i) => {
+                            let colorClass = 'bg-slate-100';
+                            if (day.score === 1) colorClass = 'bg-emerald-200';
+                            if (day.score === 2) colorClass = 'bg-emerald-300';
+                            if (day.score === 3) colorClass = 'bg-emerald-400';
+                            if (day.score >= 4) colorClass = 'bg-emerald-600';
+                            
+                            return (
+                                <div 
+                                    key={i} 
+                                    title={`${day.date}: Level ${day.score}`}
+                                    className={`w-3 h-3 rounded-sm ${colorClass}`}
+                                ></div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex items-center gap-2 mt-4 text-[10px] text-slate-400">
+                        <span>Less</span>
+                        <div className="w-2 h-2 bg-slate-100 rounded-sm"></div>
+                        <div className="w-2 h-2 bg-emerald-200 rounded-sm"></div>
+                        <div className="w-2 h-2 bg-emerald-400 rounded-sm"></div>
+                        <div className="w-2 h-2 bg-emerald-600 rounded-sm"></div>
+                        <span>More</span>
+                    </div>
+                 </div>
+
                  <h2 className="font-serif text-2xl font-bold text-slate-900">Performance Matrices</h2>
                  <p className="text-sm text-slate-500">Longitudinal analysis of temporal investment.</p>
                  
