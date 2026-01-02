@@ -103,6 +103,7 @@ interface AntiGoalDef {
 interface HabitDef {
   id: string;
   title: string;
+  createdAt?: string; // YYYY-MM-DD (IST)
 }
 
 interface CalendarEvent {
@@ -454,6 +455,13 @@ export default function ScholarsCompass() {
 
   // --- Core Logic ---
 
+  const visibleHabitsForDate = (date: string) => {
+    return (config.habits || []).filter(h => {
+      if (!h.createdAt) return true;
+      return date >= h.createdAt;
+    });
+  };
+
   const createEmptyLog = (date: string): DailyLog => ({
     date,
     categories: {},
@@ -489,7 +497,7 @@ export default function ScholarsCompass() {
     config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
     
     if (!mergedLog.habits) mergedLog.habits = {};
-    config.habits?.forEach(h => { if (mergedLog.habits[h.id] === undefined) mergedLog.habits[h.id] = false; });
+    visibleHabitsForDate(mergedLog.date).forEach(h => { if (mergedLog.habits[h.id] === undefined) mergedLog.habits[h.id] = false; });
 
     if (!mergedLog.events) mergedLog.events = [];
     if (mergedLog.rating === undefined) mergedLog.rating = 0;
@@ -568,9 +576,11 @@ export default function ScholarsCompass() {
   }, [logs]);
 
   // --- Heatmap Data Calculation ---
-  const getHabitCompletionMeta = (log?: DailyLog) => {
-      const totalHabits = config.habits?.length || 0;
-      const completed = log ? Object.entries(log.habits || {}).filter(([id, done]) => done && config.habits?.some(h => h.id === id)).length : 0;
+  const getHabitCompletionMeta = (log?: DailyLog, dateOverride?: string) => {
+      const dateStr = dateOverride || log?.date || getTodayStr();
+      const visibleHabits = visibleHabitsForDate(dateStr);
+      const totalHabits = visibleHabits.length;
+      const completed = log ? Object.entries(log.habits || {}).filter(([id, done]) => done && visibleHabits.some(h => h.id === id)).length : 0;
       let status: 'none' | 'partial' | 'full' = 'none';
       if (totalHabits > 0) {
         if (completed === 0) status = 'none';
@@ -630,7 +640,7 @@ export default function ScholarsCompass() {
       while (current <= endGrid) {
           const dStr = current.toISOString().split('T')[0];
           const log = logMap.get(dStr);
-          const meta = getHabitCompletionMeta(log);
+          const meta = getHabitCompletionMeta(log, dStr);
           days.push({ 
             date: dStr, 
             status: meta.status, 
@@ -793,13 +803,16 @@ export default function ScholarsCompass() {
 
   const toggleHabit = (hId: string) => {
       if (!activeLog) return;
+      // Prevent toggling habits that were not active on this date
+      const allowed = visibleHabitsForDate(activeLog.date).some(h => h.id === hId);
+      if (!allowed) return;
       const current = activeLog.habits[hId] || false;
       saveLog({ ...activeLog, habits: { ...activeLog.habits, [hId]: !current } });
   };
 
   const addHabit = () => {
       const id = `h_${Date.now()}`;
-      saveConfig({ ...config, habits: [...(config.habits || []), { id, title: 'New Habit' }]});
+      saveConfig({ ...config, habits: [...(config.habits || []), { id, title: 'New Habit', createdAt: getTodayStr() }]});
   };
 
   const deleteHabit = (id: string) => {
@@ -1063,7 +1076,7 @@ export default function ScholarsCompass() {
       const log = logs.find(l => l.date === dateStr);
       const hasEvents = log?.events && log.events.length > 0;
       const rating = log?.rating || 0;
-      const habitMeta = getHabitCompletionMeta(log);
+      const habitMeta = getHabitCompletionMeta(log, dateStr);
       const isSelected = selectedDate === dateStr;
       const isToday = dateStr === getTodayStr();
       let lifestyleColor = 'bg-slate-200';
@@ -1631,7 +1644,7 @@ export default function ScholarsCompass() {
                      <Heart size={12} className="text-rose-400" /> Lifestyle
                    </h3>
                    {(() => {
-                      const meta = getHabitCompletionMeta(getLogForDate(selectedDate));
+                      const meta = getHabitCompletionMeta(getLogForDate(selectedDate), selectedDate);
                       const statusClass = meta.status === 'full' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
                                          : meta.status === 'partial' ? 'bg-amber-100 text-amber-700 border-amber-200'
                                          : 'bg-slate-100 text-slate-500 border-slate-200';
@@ -1647,7 +1660,7 @@ export default function ScholarsCompass() {
                             {meta.totalHabits > 0 && <span className="font-mono">{meta.completed}/{meta.totalHabits}</span>}
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            {config.habits?.map(h => {
+                            {visibleHabitsForDate(selectedDate).map(h => {
                               const done = getLogForDate(selectedDate).habits?.[h.id];
                               return (
                                 <span key={h.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${done ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
@@ -1655,7 +1668,7 @@ export default function ScholarsCompass() {
                                 </span>
                               )
                             })}
-                            {(config.habits?.length || 0) === 0 && <p className="text-xs text-slate-400 italic">No habits configured.</p>}
+                            {visibleHabitsForDate(selectedDate).length === 0 && <p className="text-xs text-slate-400 italic">No habits configured for this date.</p>}
                           </div>
                         </div>
                       );
