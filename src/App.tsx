@@ -53,7 +53,8 @@ import {
   LogOut,
   LogIn,
   UploadCloud,
-  HardDrive
+  HardDrive,
+  Link
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -98,12 +99,18 @@ interface CalendarEvent {
   completed: boolean;
 }
 
+interface Attachment {
+  type: 'file' | 'link';
+  name: string;
+  url: string;
+}
+
 interface CategoryLog {
   goals: string[];
   goalStatus: GoalStatus[]; 
   hours: number;
   notes: string;
-  attachments: string[]; // Can be URLs or Drive Links
+  attachments: (string | Attachment)[]; // Supports legacy strings and new Attachment objects
 }
 
 interface DailyLog {
@@ -153,6 +160,19 @@ const getWeekNumber = (d: Date) => {
     d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay()||7));
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
     return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1)/7);
+};
+
+// --- Helpers for Attachments ---
+const getAttachmentInfo = (item: string | Attachment) => {
+  if (typeof item === 'string') {
+    // Legacy support
+    return {
+      url: item,
+      name: item.includes('drive.google.com') ? 'Google Drive File' : 'External Link',
+      type: 'link'
+    };
+  }
+  return item;
 };
 
 // --- Components ---
@@ -505,7 +525,13 @@ export default function ScholarsCompass() {
         const driveLink = data.webViewLink;
         
         const newCatLog = { ...activeLog.categories[catId] };
-        newCatLog.attachments = [...(newCatLog.attachments || []), driveLink];
+        // SAVE AS OBJECT WITH NAME
+        const newAttachment: Attachment = {
+            type: 'file',
+            name: file.name,
+            url: driveLink
+        };
+        newCatLog.attachments = [...(newCatLog.attachments || []), newAttachment];
         saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
         
     } catch (error: any) {
@@ -521,7 +547,13 @@ export default function ScholarsCompass() {
     const text = newLinkInputs[catId]?.trim();
     if (!text) return;
     const newCatLog = { ...activeLog.categories[catId] };
-    newCatLog.attachments = [...(newCatLog.attachments || []), text];
+    // SAVE AS OBJECT
+    const newAttachment: Attachment = {
+        type: 'link',
+        name: text, // Or user provided name, simplifying to URL for now
+        url: text
+    };
+    newCatLog.attachments = [...(newCatLog.attachments || []), newAttachment];
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
     setNewLinkInputs(prev => ({ ...prev, [catId]: '' }));
   };
@@ -634,15 +666,23 @@ export default function ScholarsCompass() {
 
   // Library Logic
   const libraryItems = useMemo(() => {
-    const items: Array<{ date: string; catTitle: string; color: string; link: string; }> = [];
+    const items: Array<{ date: string; catTitle: string; color: string; link: string; name: string; type: string }> = [];
     const sortedLogs = [...logs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     sortedLogs.forEach(log => {
       Object.entries(log.categories).forEach(([catId, catLog]) => {
         if (catLog.attachments && catLog.attachments.length > 0) {
           const catDef = config.categories.find(c => c.id === catId);
           if (catDef) {
-            catLog.attachments.forEach(link => {
-              items.push({ date: log.date, catTitle: catDef.title, color: catDef.color, link: link });
+            catLog.attachments.forEach(item => {
+              const info = getAttachmentInfo(item);
+              items.push({ 
+                  date: log.date, 
+                  catTitle: catDef.title, 
+                  color: catDef.color, 
+                  link: info.url,
+                  name: info.name,
+                  type: info.type
+              });
             });
           }
         }
@@ -861,20 +901,21 @@ export default function ScholarsCompass() {
                    </div>
                 </div>
 
-                {/* Attachments Section in Calendar (NEW) */}
+                {/* Attachments Section in Calendar */}
                 <div className="mb-6">
                     <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
                         <Paperclip size={12} className="text-slate-400" /> Attachments
                     </h3>
                     <div className="space-y-1">
                     {Object.entries(getLogForDate(selectedDate).categories).flatMap(([catId, data]) => 
-                        (data.attachments || []).map((link, i) => {
+                        (data.attachments || []).map((item, i) => {
                             const catDef = config.categories.find(c => c.id === catId);
+                            const info = getAttachmentInfo(item);
                             return (
-                                <a key={`${catId}-${i}`} href={link} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-100 rounded text-xs hover:bg-slate-100 transition-colors group">
+                                <a key={`${catId}-${i}`} href={info.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-100 rounded text-xs hover:bg-slate-100 transition-colors group">
                                     <div className={`w-1 h-4 rounded-full bg-${catDef?.color || 'slate'}-400`}></div>
-                                    <div className="flex-1 truncate text-slate-600 group-hover:text-blue-600">
-                                        {link.includes('drive.google.com') ? 'Google Drive File' : (link.includes('firebasestorage') ? 'Uploaded File' : 'External Link')}
+                                    <div className="flex-1 truncate text-slate-600 group-hover:text-blue-600" title={info.name}>
+                                        {info.name}
                                     </div>
                                     <ExternalLink size={10} className="text-slate-300 group-hover:text-blue-400" />
                                 </a>
@@ -945,11 +986,11 @@ export default function ScholarsCompass() {
                        </div>
                        <a href={item.link} target="_blank" rel="noreferrer" className="flex items-start gap-3 group-hover:bg-slate-50 p-2 rounded transition-colors">
                           <div className="bg-slate-100 p-2 rounded text-slate-500">
-                             {item.link.includes('drive.google.com') ? <HardDrive size={16} /> : (item.link.includes('firebasestorage') ? <UploadCloud size={16} /> : <ExternalLink size={16} />)}
+                             {item.type === 'file' ? <HardDrive size={16} /> : (item.link.includes('firebasestorage') ? <UploadCloud size={16} /> : <Link size={16} />)}
                           </div>
                           <div className="flex-1 overflow-hidden">
-                             <div className="text-xs font-bold text-slate-700 truncate mb-1">
-                                {item.link.includes('drive.google.com') ? 'Google Drive File' : 'External Link'}
+                             <div className="text-xs font-bold text-slate-700 truncate mb-1" title={item.name}>
+                                {item.name}
                              </div>
                              <div className="text-[10px] text-blue-500 truncate">{item.link}</div>
                           </div>
@@ -1182,11 +1223,18 @@ export default function ScholarsCompass() {
                             <HardDrive size={10} /> Proofs / Drive Files
                         </h4>
                         <div className="space-y-1 mb-2">
-                             {catLog?.attachments?.map((link, i) => (
-                                 <a key={i} href={link} target="_blank" rel="noreferrer" className="block text-[10px] text-blue-600 truncate hover:underline bg-blue-50 px-2 py-1 rounded">
-                                     {link}
-                                 </a>
-                             ))}
+                             {catLog?.attachments?.map((item, i) => {
+                                 const info = getAttachmentInfo(item);
+                                 return (
+                                    <a key={i} href={info.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-1.5 rounded bg-slate-50 hover:bg-indigo-50 text-[10px] text-slate-600 truncate transition-colors group">
+                                        <div className="text-slate-400 group-hover:text-indigo-500">
+                                            {info.type === 'file' ? <HardDrive size={12} /> : (info.url.includes('firebasestorage') ? <UploadCloud size={12} /> : <ExternalLink size={12} />)}
+                                        </div>
+                                        <span className="truncate flex-1" title={info.name}>{info.name}</span>
+                                        <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 text-indigo-400" />
+                                    </a>
+                                 );
+                             })}
                         </div>
                         <div className="flex gap-1 items-center">
                             <input 
