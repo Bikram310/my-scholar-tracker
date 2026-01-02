@@ -861,6 +861,32 @@ export default function ScholarsCompass() {
                    </div>
                 </div>
 
+                {/* Attachments Section in Calendar (NEW) */}
+                <div className="mb-6">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
+                        <Paperclip size={12} className="text-slate-400" /> Attachments
+                    </h3>
+                    <div className="space-y-1">
+                    {Object.entries(getLogForDate(selectedDate).categories).flatMap(([catId, data]) => 
+                        (data.attachments || []).map((link, i) => {
+                            const catDef = config.categories.find(c => c.id === catId);
+                            return (
+                                <a key={`${catId}-${i}`} href={link} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-100 rounded text-xs hover:bg-slate-100 transition-colors group">
+                                    <div className={`w-1 h-4 rounded-full bg-${catDef?.color || 'slate'}-400`}></div>
+                                    <div className="flex-1 truncate text-slate-600 group-hover:text-blue-600">
+                                        {link.includes('drive.google.com') ? 'Google Drive File' : (link.includes('firebasestorage') ? 'Uploaded File' : 'External Link')}
+                                    </div>
+                                    <ExternalLink size={10} className="text-slate-300 group-hover:text-blue-400" />
+                                </a>
+                            );
+                        })
+                    )}
+                    {!Object.values(getLogForDate(selectedDate).categories).some(c => c.attachments?.length) && (
+                        <p className="text-xs text-slate-400 italic">No files attached for this date.</p>
+                    )}
+                    </div>
+                </div>
+
                 <div>
                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2">Log Summary</h3>
                    <div className="mb-2">
