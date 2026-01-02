@@ -1516,6 +1516,8 @@ export default function ScholarsCompass() {
                 <li><strong>Dashboard:</strong> Track goals, hours, files, and distractions.</li>
                 <li><strong>Calendar:</strong> Double-click any date to open <em>Time Machine</em> and see full history.</li>
                 <li><strong>Night:</strong> Rate the day, mark habits, and write reflections.</li>
+                 <li><strong>Uploads 1:Before uploading files please login again just by clicking your google icon(Security Reason).</li>
+                   <li><strong>Uploads 2: You can upload as much as you want after your relogin (Valid for 1 hour, You have to relogin again).</li>
               </ol>
               <div className="mt-3 text-xs text-slate-500">You can revisit anytime via the header “?” badge.</div>
               <div className="mt-3 flex justify-end">
