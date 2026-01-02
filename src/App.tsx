@@ -1126,6 +1126,11 @@ export default function ScholarsCompass() {
                 <Sun size={48} className="text-orange-400 mb-4" />
                 <h3 className="font-serif text-xl text-white mb-2">Ready to execute?</h3>
                 <button onClick={() => setView('dashboard')} className="mt-6 bg-white text-slate-900 px-6 py-2 rounded-full font-bold text-sm hover:bg-orange-50">Go to Tracker</button>
+                
+                <div className="mt-8 pt-8 border-t border-slate-700 w-full">
+                  <p className="text-xs italic text-slate-400">created by Bikram with love</p>
+                  <p className="text-[10px] text-slate-500 mt-1">For assists and suggestion drop an email to <a href="mailto:bikrampoddar2@gmail.com" className="hover:text-slate-300">bikrampoddar2@gmail.com</a></p>
+                </div>
               </div>
             </div>
           </div>
