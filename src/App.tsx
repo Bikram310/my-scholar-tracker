@@ -294,6 +294,8 @@ export default function ScholarsCompass() {
   const [bulkEventType, setBulkEventType] = useState<'workshop' | 'deadline' | 'reminder' | 'leave'>('workshop');
   const [bulkEmailReminder, setBulkEmailReminder] = useState(false);
   const [bulkAnchorDate, setBulkAnchorDate] = useState<string | null>(null);
+  const [isBulkDragging, setIsBulkDragging] = useState(false);
+  const [bulkDragMode, setBulkDragMode] = useState<'add' | 'remove'>('add');
   
   // Temp state
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
@@ -448,9 +450,12 @@ export default function ScholarsCompass() {
     const interval = setInterval(syncTodayLogToIST, 60 * 1000);
     const handleVisibility = () => document.visibilityState === 'visible' && syncTodayLogToIST();
     document.addEventListener('visibilitychange', handleVisibility);
+    const handleMouseUp = () => setIsBulkDragging(false);
+    window.addEventListener('mouseup', handleMouseUp);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [syncTodayLogToIST]);
 
@@ -863,21 +868,28 @@ export default function ScholarsCompass() {
     return dates;
   };
 
-  const toggleBulkDate = (date: string) => {
+  const applyBulkDateAction = (date: string, mode: 'add' | 'remove') => {
     setBulkSelectedDates(prev => {
       const next = new Set(prev);
-      const already = next.has(date);
-      if (bulkSelectMode && !already && bulkAnchorDate) {
-        getDateRange(bulkAnchorDate, date).forEach(d => next.add(d));
-      } else {
-        if (already) next.delete(date); else next.add(date);
-      }
-      setBulkAnchorDate(date);
+      if (mode === 'add') next.add(date); else next.delete(date);
       return next;
     });
+    setBulkAnchorDate(date);
   };
 
-  const clearBulkSelection = () => setBulkSelectedDates(new Set());
+  const toggleBulkDate = (date: string) => {
+    const mode: 'add' | 'remove' = bulkSelectedDates.has(date) ? 'remove' : 'add';
+    if (bulkSelectMode && mode === 'add' && bulkAnchorDate) {
+      getDateRange(bulkAnchorDate, date).forEach(d => applyBulkDateAction(d, 'add'));
+    } else {
+      applyBulkDateAction(date, mode);
+    }
+  };
+
+  const clearBulkSelection = () => {
+    setBulkSelectedDates(new Set());
+    setBulkAnchorDate(null);
+  };
 
   const addBulkEvents = () => {
     if (!bulkEventTitle.trim() || bulkSelectedDates.size === 0) return;
@@ -912,6 +924,13 @@ export default function ScholarsCompass() {
       saveLog(updatedLog);
     });
     clearBulkSelection();
+  };
+
+  const fillRangeFromSelection = () => {
+    if (bulkSelectedDates.size < 2) return;
+    const ordered = Array.from(bulkSelectedDates).sort();
+    const range = getDateRange(ordered[0], ordered[ordered.length - 1]);
+    setBulkSelectedDates(new Set(range));
   };
 
   const updateCategoryTitle = (id: string, newTitle: string) => {
@@ -1134,6 +1153,19 @@ export default function ScholarsCompass() {
             setSelectedDate(dateStr);
           }}
           onDoubleClick={() => setHistoryDate(dateStr)} // Double click for Time Machine
+          onMouseDown={(e) => {
+            if (!bulkSelectMode) return;
+            e.preventDefault();
+            const mode: 'add' | 'remove' = bulkSelectedDates.has(dateStr) ? 'remove' : 'add';
+            setBulkDragMode(mode);
+            setIsBulkDragging(true);
+            applyBulkDateAction(dateStr, mode);
+          }}
+          onMouseEnter={() => {
+            if (bulkSelectMode && isBulkDragging) {
+              applyBulkDateAction(dateStr, bulkDragMode);
+            }
+          }}
           className={`h-24 p-1 border cursor-pointer transition-colors flex flex-col justify-between relative select-none
             ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-white z-10' : 'border-slate-200 bg-white hover:bg-slate-50'}
             ${isToday ? 'bg-indigo-50' : ''}
@@ -1547,6 +1579,7 @@ export default function ScholarsCompass() {
                    </button>
                  </div>
                  <div className="text-[11px] text-slate-500 mb-2">Click dates in the calendar to toggle them.</div>
+                 <div className="text-[11px] text-slate-500 mb-2">Tip: start selecting, then drag over days to add/remove; first+last click fills the range.</div>
                  <div className="flex flex-wrap gap-2 mb-2">
                    {Array.from(bulkSelectedDates).map(d => (
                      <span key={d} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-700 rounded border border-indigo-200">{d}</span>
@@ -1589,6 +1622,13 @@ export default function ScholarsCompass() {
                      disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
                    >
                      Remove from selected dates
+                   </button>
+                   <button 
+                     onClick={fillRangeFromSelection}
+                     className="text-xs px-3 py-2 rounded border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                     disabled={bulkSelectedDates.size < 2}
+                   >
+                     Fill between first/last
                    </button>
                    <button 
                      onClick={clearBulkSelection}
