@@ -266,6 +266,7 @@ export default function ScholarsCompass() {
   const [authLoading, setAuthLoading] = useState(true);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [showSetupHint, setShowSetupHint] = useState(false);
+  const [showGuidedTour, setShowGuidedTour] = useState(false);
   
   // State
   const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2 });
@@ -339,6 +340,10 @@ export default function ScholarsCompass() {
       if (!hasShown) {
         setShowSetupHint(true);
         sessionStorage.setItem('setup_hint_shown', 'true');
+      }
+      const hasSeenTour = localStorage.getItem('guided_tour_seen');
+      if (!hasSeenTour) {
+        setTimeout(() => setShowGuidedTour(true), 400); // slight delay for page render
       }
     }
   }, [user]);
@@ -480,6 +485,30 @@ export default function ScholarsCompass() {
 
   const getLogForDate = (date: string) => {
     return logs.find(l => l.date === date) || createEmptyLog(date);
+  };
+
+  const cloneYesterdayIntoToday = () => {
+    if (!todayLog) return;
+    const todayDate = todayLog.date;
+    const yesterday = new Date(todayDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split('T')[0];
+    const yLog = logs.find(l => l.date === yStr);
+    if (!yLog) {
+      alert("No log found for yesterday to copy.");
+      return;
+    }
+    const newLog: DailyLog = {
+      ...todayLog,
+      categories: JSON.parse(JSON.stringify(yLog.categories || {})),
+      antiGoals: { ...yLog.antiGoals },
+      habits: { ...yLog.habits },
+      events: [...(todayLog.events || [])], // keep today's events intact
+      reflection: '',
+      rating: 0
+    };
+    saveLog(newLog);
+    alert("Copied yesterday's goals and habits into today. You can edit them now.");
   };
 
   const activeLog = useMemo(() => {
@@ -1472,6 +1501,44 @@ export default function ScholarsCompass() {
         </div>
       )}
 
+      {/* Guided Tour Overlay (first login only) */}
+      {showGuidedTour && (
+        <div className="fixed inset-0 z-[60] pointer-events-none">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm pointer-events-auto" onClick={() => { setShowGuidedTour(false); localStorage.setItem('guided_tour_seen', 'true'); }}></div>
+          <div className="pointer-events-auto">
+            <div className="fixed top-16 left-1/2 -translate-x-1/2 bg-white shadow-2xl border border-slate-200 rounded-xl p-4 w-[90%] max-w-3xl">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="bg-indigo-100 text-indigo-700 p-2 rounded-full"><BookOpen size={18} /></div>
+                <h3 className="font-serif text-xl font-bold text-slate-900">1-minute tour</h3>
+              </div>
+              <ol className="list-decimal list-inside text-sm text-slate-700 space-y-2">
+                <li><strong>Morning:</strong> Set goals and plans for the day.</li>
+                <li><strong>Dashboard:</strong> Track goals, hours, files, and distractions.</li>
+                <li><strong>Calendar:</strong> Double-click any date to open <em>Time Machine</em> and see full history.</li>
+                <li><strong>Night:</strong> Rate the day, mark habits, and write reflections.</li>
+              </ol>
+              <div className="mt-3 text-xs text-slate-500">You can revisit anytime via the header “?” badge.</div>
+              <div className="mt-3 flex justify-end">
+                <button 
+                  onClick={() => { setShowGuidedTour(false); localStorage.setItem('guided_tour_seen', 'true'); }}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+            <div className="fixed top-[70px] left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-none">
+              <div className="flex gap-2 bg-white/90 text-slate-700 px-3 py-1 rounded-full shadow-md text-[11px] font-bold uppercase tracking-wide">
+                <span className="text-orange-600">Morning</span>
+                <span className="text-indigo-600">Dashboard</span>
+                <span className="text-sky-600">Calendar</span>
+                <span className="text-purple-600">Night</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -1490,6 +1557,13 @@ export default function ScholarsCompass() {
                   <Snowflake size={16} className="fill-sky-100" />
                   <span className="font-mono font-bold text-sky-600">{config.streakFreezes}</span>
                </div>
+               <button 
+                 onClick={() => { setShowGuidedTour(true); }}
+                 className="ml-2 text-[11px] px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                 title="Show guided tour"
+               >
+                 ?
+               </button>
             </div>
           </div>
 
@@ -1969,6 +2043,14 @@ export default function ScholarsCompass() {
             <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-6 rounded-xl border border-orange-100">
               <h2 className="font-serif text-2xl font-bold text-orange-900 mb-2">Morning Resolutions</h2>
               <p className="text-orange-800/80">Define your vectors for the day.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button 
+                  onClick={cloneYesterdayIntoToday}
+                  className="flex items-center gap-2 text-xs font-bold bg-white text-orange-700 px-3 py-2 rounded border border-orange-200 hover:bg-orange-100 shadow-sm"
+                >
+                  <History size={14} /> Same as yesterday
+                </button>
+              </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
