@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  signInWithCustomToken, 
-  signInAnonymously, 
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
   onAuthStateChanged,
   User 
 } from 'firebase/auth';
@@ -48,7 +49,9 @@ import {
   ShieldAlert,
   Star,
   Skull,
-  Target
+  Target,
+  LogOut,
+  LogIn
 } from 'lucide-react';
 
 // --- Firebase Configuration & Initialization ---
@@ -199,10 +202,39 @@ const StarRating = ({ rating, onChange, readOnly = false }: { rating: number, on
   );
 };
 
+const LoginScreen = ({ onLogin }: { onLogin: () => void }) => (
+  <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-orange-50 flex flex-col items-center justify-center p-6 text-center font-sans">
+    <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-xl max-w-md w-full">
+      <div className="flex justify-center mb-6">
+        <div className="bg-indigo-600 p-4 rounded-xl text-white shadow-lg transform -rotate-3">
+          <BookOpen size={40} />
+        </div>
+      </div>
+      <h1 className="font-serif text-3xl font-bold text-slate-900 mb-2">Scholar's Compass</h1>
+      <p className="text-slate-500 mb-8">
+        Precision tracking for the serious academic. Log your research, analyze your metrics, and master your timeline.
+      </p>
+      
+      <button 
+        onClick={onLogin}
+        className="w-full flex items-center justify-center gap-3 bg-slate-900 text-white p-4 rounded-xl font-bold hover:bg-slate-800 transition-all hover:scale-[1.02] shadow-md group"
+      >
+        <LogIn size={20} className="group-hover:translate-x-1 transition-transform" />
+        <span>Continue with Google</span>
+      </button>
+      
+      <div className="mt-6 text-xs text-slate-400">
+        Data is securely stored in your personal account via Firebase.
+      </div>
+    </div>
+  </div>
+);
+
 // --- Main Application ---
 
 export default function ScholarsCompass() {
   const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   
   // State
   const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
@@ -210,7 +242,7 @@ export default function ScholarsCompass() {
   const [todayLog, setTodayLog] = useState<DailyLog | null>(null);
   
   // UI State
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'library' | 'night' | 'analytics' | 'settings'>('dashboard');
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
@@ -234,22 +266,29 @@ export default function ScholarsCompass() {
     return () => clearInterval(timer);
   }, []);
 
-  // --- Auth & Init ---
+  // --- Auth Logic ---
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-         // @ts-ignore
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-           // @ts-ignore
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) { console.error(err); }
-    };
-    initAuth();
-    return onAuthStateChanged(auth, setUser);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
+
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error) {
+      console.error("Login failed", error);
+      alert("Authentication failed. Please check your domain settings in Firebase.");
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setLogs([]); // Clear local data on logout
+    setTodayLog(null);
+  };
 
   // --- Data Fetching ---
   useEffect(() => {
@@ -293,7 +332,7 @@ export default function ScholarsCompass() {
         });
         if (fetchedLogs.length === 0) setView('morning');
       }
-      setLoading(false);
+      setDataLoading(false);
     });
 
     return () => unsubscribe();
@@ -418,18 +457,12 @@ export default function ScholarsCompass() {
     setNewGoalInputs(prev => ({ ...prev, [catId]: '' }));
   };
 
-  // --- NEW: Remove Goal Handler ---
   const handleGoalDelete = (catId: string, idx: number) => {
     if (!activeLog) return;
     const newCatLog = { ...activeLog.categories[catId] };
-    // Remove the goal and its corresponding status
     newCatLog.goals = newCatLog.goals.filter((_, i) => i !== idx);
     newCatLog.goalStatus = newCatLog.goalStatus.filter((_, i) => i !== idx);
-    
-    saveLog({ 
-        ...activeLog, 
-        categories: { ...activeLog.categories, [catId]: newCatLog } 
-    });
+    saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
   };
 
   const cycleGoalStatus = (catId: string, idx: number) => {
@@ -627,14 +660,16 @@ export default function ScholarsCompass() {
   };
 
 
-  if (loading || !activeLog) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading Scholar's Compass...</div>;
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading...</div>;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  if (dataLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400">Syncing Scholar's Log...</div>;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
       
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="bg-indigo-600 p-1.5 rounded text-white hidden sm:block">
               <BookOpen size={20} />
@@ -653,30 +688,39 @@ export default function ScholarsCompass() {
             </div>
           </div>
 
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
-            {[
-              { id: 'morning', icon: Sun, label: 'Plan' },
-              { id: 'dashboard', icon: CalendarDays, label: 'Track' },
-              { id: 'calendar', icon: CalendarIcon, label: 'Cal' },
-              { id: 'library', icon: FolderOpen, label: 'Lib' },
-              { id: 'analytics', icon: BarChart3, label: 'Data' },
-              { id: 'night', icon: Moon, label: 'Reflect' },
-              { id: 'settings', icon: Settings, label: 'Setup' },
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setView(tab.id as any)}
-                className={`p-2 rounded-md transition-all flex items-center gap-2 ${view === tab.id ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-              >
-                <tab.icon size={18} />
-                <span className="hidden lg:inline text-xs font-bold uppercase">{tab.label}</span>
-              </button>
-            ))}
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
+                {[
+                { id: 'morning', icon: Sun, label: 'Plan' },
+                { id: 'dashboard', icon: CalendarDays, label: 'Track' },
+                { id: 'calendar', icon: CalendarIcon, label: 'Cal' },
+                { id: 'library', icon: FolderOpen, label: 'Lib' },
+                { id: 'analytics', icon: BarChart3, label: 'Data' },
+                { id: 'night', icon: Moon, label: 'Reflect' },
+                { id: 'settings', icon: Settings, label: 'Setup' },
+                ].map(tab => (
+                <button
+                    key={tab.id}
+                    onClick={() => setView(tab.id as any)}
+                    className={`p-2 rounded-md transition-all flex items-center gap-2 ${view === tab.id ? 'bg-white shadow text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                    <tab.icon size={18} />
+                    <span className="hidden lg:inline text-xs font-bold uppercase">{tab.label}</span>
+                </button>
+                ))}
+            </div>
+            <button 
+                onClick={handleLogout} 
+                className="p-2 text-slate-400 hover:text-rose-500 transition-colors"
+                title="Sign Out"
+            >
+                <LogOut size={20} />
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-4 py-8">
 
         {/* --- VIEW: CALENDAR --- */}
         {view === 'calendar' && (
