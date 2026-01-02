@@ -56,7 +56,8 @@ import {
   HardDrive,
   Link,
   Info,
-  History
+  History,
+  ShieldCheck
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -931,38 +932,86 @@ export default function ScholarsCompass() {
         </div>
       )}
 
-      {/* Setup Hint Popup */}
+      {/* Setup Hint Popup / Welcome Guide */}
       {showSetupHint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in">
-          <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col relative">
             <button 
               onClick={() => setShowSetupHint(false)} 
-              className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 z-10"
             >
-              <X size={20} />
+              <X size={24} />
             </button>
-            <div className="flex justify-center mb-4">
-              <div className="bg-indigo-100 p-3 rounded-full text-indigo-600">
-                <Info size={32} />
+            
+            <div className="p-8">
+              <div className="flex flex-col items-center mb-6">
+                <div className="bg-indigo-100 p-4 rounded-full text-indigo-600 mb-4 shadow-sm">
+                  <BookOpen size={48} />
+                </div>
+                <h3 className="font-serif text-3xl font-bold text-slate-900 mb-2">Welcome to Scholar's Compass</h3>
+                <p className="text-slate-500 text-center max-w-md">
+                  A precision instrument designed for the rigors of academic research.
+                </p>
               </div>
-            </div>
-            <h3 className="font-serif text-xl font-bold text-slate-900 mb-2">Welcome, Scholar!</h3>
-            <p className="text-sm text-slate-600 mb-6">
-              Tailor this compass to your journey. Visit the <strong>Setup</strong> tab to add or remove your specific research goals.
-            </p>
-            <div className="flex gap-3">
-              <button 
-                onClick={() => setShowSetupHint(false)} 
-                className="flex-1 py-2 text-slate-600 font-bold hover:bg-slate-50 rounded-lg transition-colors"
-              >
-                Dismiss
-              </button>
-              <button 
-                onClick={() => { setShowSetupHint(false); setView('settings'); }} 
-                className="flex-1 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
-              >
-                Go to Setup
-              </button>
+
+              <div className="space-y-6">
+                
+                {/* Feature Manual */}
+                <div className="bg-slate-50 p-6 rounded-xl border border-slate-100">
+                  <h4 className="font-bold text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
+                    <Info size={14} /> User Manual & Capabilities
+                  </h4>
+                  <ul className="space-y-3 text-sm text-slate-600">
+                    <li className="flex gap-3">
+                      <Settings size={18} className="text-indigo-500 shrink-0" />
+                      <span><strong>Dynamic Configuration:</strong> Visit the <strong>Setup</strong> tab to define your specific research vectors. Add/Remove plans and distraction logs (Anti-Goals).</span>
+                    </li>
+                    <li className="flex gap-3">
+                      <Target size={18} className="text-emerald-500 shrink-0" />
+                      <span><strong>Tri-State Objectives:</strong> Tap any goal to cycle its status: <span className="text-rose-500">Pending</span> → <span className="text-amber-500">In Progress</span> → <span className="text-emerald-600">Done</span>.</span>
+                    </li>
+                    <li className="flex gap-3">
+                      <History size={18} className="text-purple-500 shrink-0" />
+                      <span><strong>Time Machine:</strong> Double-click any date in the <strong>Calendar</strong> to open a full historical snapshot of that day's work, notes, and ratings.</span>
+                    </li>
+                    <li className="flex gap-3">
+                      <BarChart3 size={18} className="text-blue-500 shrink-0" />
+                      <span><strong>Longitudinal Analytics:</strong> Track your investment with Daily (6h), Weekly (40h), and Monthly (160h) load matrices.</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Security Guarantee */}
+                <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100">
+                  <h4 className="font-bold text-emerald-900 uppercase text-xs tracking-wider mb-3 flex items-center gap-2">
+                    <ShieldCheck size={14} /> Data Sovereignty & Security Protocol
+                  </h4>
+                  <p className="text-sm text-emerald-800 leading-relaxed mb-3">
+                    We understand that in Ph.D. research, data confidentiality is paramount. This application is architected with a <strong>Zero-Access</strong> philosophy:
+                  </p>
+                  <ul className="text-sm text-emerald-800 space-y-2 list-disc list-inside">
+                    <li><strong>Identity Isolation:</strong> Database entries are cryptographically locked to your unique Google ID using Row-Level Security rules.</li>
+                    <li><strong>Your Drive, Your Data:</strong> All uploaded files (PDFs, images) are stored directly in <strong>your personal Google Drive</strong>. We store only the link.</li>
+                    <li><strong>Full Ownership:</strong> You retain complete control and ownership of your intellectual property.</li>
+                  </ul>
+                </div>
+
+              </div>
+
+              <div className="mt-8 flex gap-4">
+                <button 
+                  onClick={() => setShowSetupHint(false)} 
+                  className="flex-1 py-3 text-slate-600 font-bold hover:bg-slate-50 rounded-xl transition-colors border border-slate-200"
+                >
+                  Close Guide
+                </button>
+                <button 
+                  onClick={() => { setShowSetupHint(false); setView('settings'); }} 
+                  className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+                >
+                  Configure My Plans
+                </button>
+              </div>
             </div>
           </div>
         </div>
