@@ -61,7 +61,8 @@ import {
   Activity,
   Heart,
   Copy,
-  Grid
+  Grid,
+  Printer
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -510,14 +511,12 @@ export default function ScholarsCompass() {
   }, [logs]);
 
   // --- Heatmap Data Calculation ---
-  const heatmapData = useMemo(() => {
-      // Generate last 16 weeks (approx 112 days)
+  const workHeatmapData = useMemo(() => {
       const days = [];
       const today = new Date();
-      // Start from a Sunday approx 16 weeks ago to align with grid
       const endDate = new Date(today);
       const startDate = new Date(today);
-      startDate.setDate(startDate.getDate() - (15 * 7) - startDate.getDay()); // 15 weeks back, align to Sunday
+      startDate.setDate(startDate.getDate() - (15 * 7) - startDate.getDay()); 
 
       const dateMap = new Map();
       logs.forEach(l => {
@@ -531,8 +530,6 @@ export default function ScholarsCompass() {
       });
 
       let current = new Date(startDate);
-      // Generate days until we reach the Saturday after today (or today)
-      // We want full weeks for the grid
       const endGrid = new Date(today);
       endGrid.setDate(endGrid.getDate() + (6 - endGrid.getDay()));
 
@@ -541,6 +538,51 @@ export default function ScholarsCompass() {
           days.push({
               date: dStr,
               score: dateMap.get(dStr) || 0
+          });
+          current.setDate(current.getDate() + 1);
+      }
+      return days;
+  }, [logs]);
+
+  const lifestyleHeatmapData = useMemo(() => {
+      const days = [];
+      const today = new Date();
+      const startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - (15 * 7) - startDate.getDay()); 
+
+      const dateMap = new Map();
+      logs.forEach(l => {
+          // Calculate score based on habits
+          // 0 (none) = 0
+          // 1 = 1
+          // 2+ = 2
+          let score = 0;
+          const habitCount = Object.values(l.habits || {}).filter(Boolean).length;
+          // We use -1 to indicate "Log exists but 0 habits" vs 0 for "No log"
+          if (habitCount === 0) score = -1; 
+          else if (habitCount === 1) score = 1;
+          else if (habitCount >= 2) score = 2;
+          
+          dateMap.set(l.date, score);
+      });
+
+      let current = new Date(startDate);
+      const endGrid = new Date(today);
+      endGrid.setDate(endGrid.getDate() + (6 - endGrid.getDay()));
+
+      while (current <= endGrid) {
+          const dStr = current.toISOString().split('T')[0];
+          const loggedScore = dateMap.get(dStr);
+          // If no log exists (undefined), we use 0 (Gray). 
+          // If log exists but 0 habits (-1), we map it to our red code (let's say 3 for internal logic)
+          let finalScore = 0;
+          if (loggedScore === -1) finalScore = 3; // Red
+          else if (loggedScore === 1) finalScore = 1; // Yellow
+          else if (loggedScore >= 2) finalScore = 2; // Green
+          
+          days.push({
+              date: dStr,
+              score: finalScore
           });
           current.setDate(current.getDate() + 1);
       }
@@ -786,62 +828,112 @@ export default function ScholarsCompass() {
     return { dailyTotals, weekTotals, monthTotals };
   }, [logs, config]);
 
-  const generateWeeklyReport = () => {
+  const generateWeeklyReport = (mode: 'copy' | 'print' = 'copy') => {
     const today = new Date();
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(today.getDate() - 7);
     
-    // Sort logs descending for the report
     const recentLogs = logs.filter(l => new Date(l.date) >= oneWeekAgo && new Date(l.date) <= today)
                            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    let report = `WEEKLY SCHOLAR REPORT\n${oneWeekAgo.toDateString()} - ${today.toDateString()}\n\n`;
-    
+    // HTML Building for Print
+    let htmlContent = `
+      <html>
+      <head>
+        <title>Scholar's Weekly Report</title>
+        <style>
+          body { font-family: 'Georgia', serif; padding: 40px; max-width: 800px; margin: 0 auto; color: #1e293b; }
+          h1 { color: #312e81; border-bottom: 2px solid #312e81; padding-bottom: 15px; margin-bottom: 30px; }
+          h2 { color: #4f46e5; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-top: 30px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; }
+          .meta { color: #64748b; font-style: italic; margin-bottom: 30px; font-size: 14px; }
+          ul { padding-left: 20px; }
+          li { margin-bottom: 8px; line-height: 1.5; }
+          .stat-row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #cbd5e1; padding-bottom: 4px; }
+          .notes-block { background: #f8fafc; padding: 15px; border-left: 3px solid #6366f1; margin-bottom: 15px; font-size: 14px; white-space: pre-wrap; }
+          .date-header { font-weight: bold; margin-top: 15px; color: #334155; }
+        </style>
+      </head>
+      <body>
+        <h1>Scholar's Compass: Weekly Report</h1>
+        <div class="meta">Report Period: ${oneWeekAgo.toDateString()} - ${today.toDateString()}</div>
+        <div class="meta">Generated for: ${user?.displayName || user?.email}</div>
+    `;
+
     // 1. Time Investment
-    report += `TIME INVESTMENT:\n`;
+    htmlContent += `<h2>Time Investment</h2>`;
     let totalHours = 0;
     config.categories.forEach(cat => {
       const catHours = recentLogs.reduce((acc, log) => acc + (log.categories[cat.id]?.hours || 0), 0);
       totalHours += catHours;
-      if (catHours > 0) report += `- ${cat.title}: ${catHours.toFixed(1)} hrs\n`;
+      if (catHours > 0) htmlContent += `<div class="stat-row"><span>${cat.title}</span> <span>${catHours.toFixed(1)} hrs</span></div>`;
     });
-    report += `TOTAL: ${totalHours.toFixed(1)} hrs\n\n`;
+    htmlContent += `<div class="stat-row" style="font-weight:bold; margin-top:10px; border-bottom:none;"><span>TOTAL</span> <span>${totalHours.toFixed(1)} hrs</span></div>`;
 
-    // 2. Key Achievements (Green Goals)
-    report += `KEY ACHIEVEMENTS:\n`;
+    // 2. Key Achievements
+    htmlContent += `<h2>Key Achievements</h2><ul>`;
     let achievementCount = 0;
     recentLogs.forEach(log => {
       Object.entries(log.categories).forEach(([catId, data]) => {
         const greenGoals = data.goals.filter((_, i) => data.goalStatus[i] === 'completed');
         if (greenGoals.length > 0) {
-            report += `[${log.date}] ${config.categories.find(c=>c.id===catId)?.title || 'Task'}:\n`;
-            greenGoals.forEach(g => report += `  ✓ ${g}\n`);
+            htmlContent += `<li><strong>[${log.date}] ${config.categories.find(c=>c.id===catId)?.title || 'Task'}:</strong><ul>`;
+            greenGoals.forEach(g => htmlContent += `<li>${g}</li>`);
+            htmlContent += `</ul></li>`;
             achievementCount += greenGoals.length;
         }
       });
     });
-    if (achievementCount === 0) report += "No completed goals logged.\n";
-    report += "\n";
+    if (achievementCount === 0) htmlContent += "<li>No completed goals recorded this week.</li>";
+    htmlContent += `</ul>`;
 
-    // 3. Field Notes Summary
-    report += `FIELD NOTES HIGHLIGHTS:\n`;
+    // 3. Field Notes
+    htmlContent += `<h2>Research Field Notes</h2>`;
     let notesCount = 0;
     recentLogs.forEach(log => {
         const hasNotes = Object.values(log.categories).some(c => c.notes && c.notes.trim().length > 0);
         if (hasNotes) {
-            report += `--- ${log.date} ---\n`;
+            htmlContent += `<div class="date-header">${log.date}</div>`;
             Object.entries(log.categories).forEach(([catId, data]) => {
                 if (data.notes && data.notes.trim().length > 0) {
-                     report += `${config.categories.find(c=>c.id===catId)?.title}: ${data.notes}\n`;
+                     htmlContent += `<div class="notes-block"><strong>${config.categories.find(c=>c.id===catId)?.title}:</strong><br/>${data.notes}</div>`;
                 }
             });
             notesCount++;
         }
     });
-    if (notesCount === 0) report += "No notes recorded.\n";
+    if (notesCount === 0) htmlContent += "<p>No notes recorded.</p>";
 
-    navigator.clipboard.writeText(report);
-    alert("Weekly Report copied to clipboard!");
+    htmlContent += `</body></html>`;
+
+    if (mode === 'print') {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+            // Wait for styles to load then print
+            setTimeout(() => {
+                printWindow.print();
+            }, 500);
+        }
+    } else {
+        // Plain Text for Clipboard
+        let report = `WEEKLY SCHOLAR REPORT\n${oneWeekAgo.toDateString()} - ${today.toDateString()}\n\n`;
+        report += `TIME INVESTMENT:\n`;
+        config.categories.forEach(cat => {
+            const catHours = recentLogs.reduce((acc, log) => acc + (log.categories[cat.id]?.hours || 0), 0);
+            if (catHours > 0) report += `- ${cat.title}: ${catHours.toFixed(1)} hrs\n`;
+        });
+        report += `TOTAL: ${totalHours.toFixed(1)} hrs\n\n`;
+        report += `KEY ACHIEVEMENTS:\n`;
+        recentLogs.forEach(log => {
+            Object.entries(log.categories).forEach(([catId, data]) => {
+                const greenGoals = data.goals.filter((_, i) => data.goalStatus[i] === 'completed');
+                greenGoals.forEach(g => report += `[${log.date}] ${g}\n`);
+            });
+        });
+        navigator.clipboard.writeText(report);
+        alert("Weekly Report copied to clipboard!");
+    }
   };
 
   // Library Logic
@@ -1404,378 +1496,6 @@ export default function ScholarsCompass() {
           </div>
         )}
 
-        {/* --- VIEW: LIBRARY --- */}
-        {view === 'library' && (
-           <div className="animate-fade-in space-y-6">
-             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100">
-                <h2 className="font-serif text-2xl font-bold text-blue-900 mb-2">Knowledge Repository</h2>
-                <p className="text-blue-800/80">Centralized archive of all files, proofs, and links.</p>
-             </div>
-
-             {libraryItems.length === 0 ? (
-               <div className="text-center py-20 text-slate-400 bg-white rounded-xl border border-slate-200 border-dashed">
-                 <FolderOpen size={48} className="mx-auto mb-4 opacity-50" />
-                 <p>No resources logged yet. Add links in the "Track" tab.</p>
-               </div>
-             ) : (
-               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {libraryItems.map((item, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
-                       <div className="flex items-center justify-between mb-3">
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-${item.color}-50 text-${item.color}-600`}>
-                            {item.catTitle}
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400">{item.date}</span>
-                       </div>
-                       <a href={item.link} target="_blank" rel="noreferrer" className="flex items-start gap-3 group-hover:bg-slate-50 p-2 rounded transition-colors">
-                          <div className="bg-slate-100 p-2 rounded text-slate-500">
-                             {item.type === 'file' ? <HardDrive size={16} /> : (item.link.includes('firebasestorage') ? <UploadCloud size={16} /> : <Link size={16} />)}
-                          </div>
-                          <div className="flex-1 overflow-hidden">
-                             <div className="text-xs font-bold text-slate-700 truncate mb-1" title={item.name}>
-                                {item.name}
-                             </div>
-                             <div className="text-[10px] text-blue-500 truncate">{item.link}</div>
-                          </div>
-                       </a>
-                    </div>
-                  ))}
-               </div>
-             )}
-           </div>
-        )}
-
-        {/* --- VIEW: SETTINGS --- */}
-        {view === 'settings' && (
-           <div className="animate-fade-in space-y-6">
-             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
-               <div className="space-y-4 mb-6">
-                 {config.categories.map((cat) => (
-                   <div key={cat.id} className="flex items-center gap-3">
-                     <div className={`w-3 h-3 rounded-full bg-${cat.color}-500`}></div>
-                     <input 
-                       value={cat.title}
-                       onChange={(e) => updateCategoryTitle(cat.id, e.target.value)}
-                       className="flex-1 p-2 border border-slate-300 rounded text-sm font-bold text-slate-700 focus:border-indigo-500 outline-none"
-                     />
-                     <button onClick={() => deleteCategory(cat.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
-                   </div>
-                 ))}
-               </div>
-               <button onClick={addCategory} className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700 mb-8"><Plus size={16} /> Add New Plan</button>
-               
-               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Lifestyle Habits</h2>
-               <div className="space-y-4 mb-6">
-                 {config.habits?.map((h) => (
-                   <div key={h.id} className="flex items-center gap-3">
-                     <Activity size={16} className="text-slate-400" />
-                     <input 
-                       value={h.title}
-                       onChange={(e) => updateHabitTitle(h.id, e.target.value)}
-                       className="flex-1 p-2 border border-slate-300 rounded text-sm font-bold text-slate-700 focus:border-indigo-500 outline-none"
-                     />
-                     <button onClick={() => deleteHabit(h.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
-                   </div>
-                 ))}
-               </div>
-               <button onClick={addHabit} className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700 mb-8"><Plus size={16} /> Add Habit</button>
-
-               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Anti-Goals (Distractions)</h2>
-               <div className="space-y-4 mb-6">
-                 {config.antiGoals.map((ag) => (
-                   <div key={ag.id} className="flex items-center gap-3">
-                     <Skull size={16} className="text-slate-400" />
-                     <input 
-                       value={ag.title}
-                       onChange={(e) => updateAntiGoalTitle(ag.id, e.target.value)}
-                       className="flex-1 p-2 border border-slate-300 rounded text-sm font-bold text-slate-700 focus:border-indigo-500 outline-none"
-                     />
-                     <button onClick={() => deleteAntiGoal(ag.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
-                   </div>
-                 ))}
-               </div>
-               <button onClick={addAntiGoal} className="flex items-center gap-2 text-sm font-bold text-rose-600 hover:text-rose-700"><Plus size={16} /> Add Anti-Goal</button>
-
-               {/* ACCOUNT SECTION */}
-               <div className="border-t border-slate-200 pt-6 mt-8">
-                 <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Account</h2>
-                 <div className="flex items-center gap-4 mb-4">
-                    {user?.photoURL ? (
-                        <img src={user.photoURL} className="w-10 h-10 rounded-full border border-slate-200" alt="Profile" />
-                    ) : (
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold border border-indigo-200">
-                            {user?.displayName?.[0] || user?.email?.[0] || 'U'}
-                        </div>
-                    )}
-                    <div>
-                        <div className="text-sm font-bold text-slate-700">{user?.displayName || 'Scholar'}</div>
-                        <div className="text-xs text-slate-500">{user?.email}</div>
-                    </div>
-                 </div>
-                 <button 
-                    onClick={handleLogout}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-600 p-3 rounded-xl font-bold hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                 >
-                    <LogOut size={18} /> Sign Out
-                 </button>
-               </div>
-             </div>
-           </div>
-        )}
-        
-        {/* --- VIEW: MORNING --- */}
-        {view === 'morning' && (
-          <div className="animate-fade-in space-y-6">
-            {activeLog.events && activeLog.events.length > 0 && (
-              <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl flex items-start gap-3">
-                 <AlertCircle className="text-rose-500 shrink-0" size={20} />
-                 <div>
-                   <h3 className="font-bold text-rose-800 text-sm">Happening Today</h3>
-                   <ul className="list-disc list-inside text-xs text-rose-700 mt-1">
-                     {activeLog.events.map(ev => <li key={ev.id}>{ev.title}</li>)}
-                   </ul>
-                 </div>
-              </div>
-            )}
-
-            <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-6 rounded-xl border border-orange-100">
-              <h2 className="font-serif text-2xl font-bold text-orange-900 mb-2">Morning Resolutions</h2>
-              <p className="text-orange-800/80">Define your vectors for the day.</p>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-6">
-                {config.categories.map(cat => (
-                  <div key={cat.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-                    <h3 className={`text-xs font-bold uppercase tracking-wider mb-3 text-${cat.color}-600`}>{cat.title}</h3>
-                    <div className="space-y-2 mb-3">
-                      {activeLog.categories[cat.id]?.goals.map((g, i) => (
-                        <div key={i} className="flex items-center justify-between text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100 group">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400`}></div>
-                            <span>{g}</span>
-                          </div>
-                          <button 
-                            onClick={() => handleGoalDelete(cat.id, i)}
-                            className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                            title="Remove Goal"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <input 
-                        value={newGoalInputs[cat.id] || ''}
-                        onChange={(e) => setNewGoalInputs({ ...newGoalInputs, [cat.id]: e.target.value })}
-                        onKeyDown={(e) => e.key === 'Enter' && handleGoalAdd(cat.id)}
-                        placeholder="Add goal..."
-                        className="flex-1 text-sm p-2 rounded border border-slate-300 focus:border-indigo-500 outline-none"
-                      />
-                      <button onClick={() => handleGoalAdd(cat.id)} className="p-2 bg-slate-800 text-white rounded"><ChevronRight size={16} /></button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-col justify-center items-center text-center p-8 bg-slate-800 rounded-xl text-slate-300">
-                <Sun size={48} className="text-orange-400 mb-4" />
-                <h3 className="font-serif text-xl text-white mb-2">Ready to execute?</h3>
-                <button onClick={() => setView('dashboard')} className="mt-6 bg-white text-slate-900 px-6 py-2 rounded-full font-bold text-sm hover:bg-orange-50">Go to Tracker</button>
-                
-                <div className="mt-8 pt-8 border-t border-slate-700 w-full">
-                  <p className="text-xs italic text-slate-400">created by Bikram with love</p>
-                  <p className="text-[10px] text-slate-500 mt-1">For assists and suggestion drop an email to <a href="mailto:bikrampoddar2@gmail.com" className="hover:text-slate-300">bikrampoddar2@gmail.com</a></p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* --- VIEW: TRACKER / DASHBOARD --- */}
-        {view === 'dashboard' && (
-          <div className="animate-fade-in space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-              <div>
-                 <h2 className="font-serif text-2xl font-bold text-slate-900">Today's Ledger</h2>
-                 <span className="text-sm font-mono text-slate-500 bg-slate-100 px-2 py-1 rounded inline-block mt-1">{todayLog?.date}</span>
-              </div>
-              
-              {activeLog.events && activeLog.events.length > 0 ? (
-                 <div className="bg-rose-50 border border-rose-200 px-4 py-2 rounded-lg flex items-center gap-3 animate-pulse-slow">
-                    <Bell size={16} className="text-rose-600" />
-                    <div className="text-sm text-rose-800 font-bold">
-                      {activeLog.events.length} Event{activeLog.events.length > 1 ? 's' : ''} Today
-                    </div>
-                 </div>
-              ) : null}
-            </div>
-
-            {/* Anti-Goal Section */}
-            <div className="bg-slate-800 p-5 rounded-xl text-slate-200">
-                <h3 className="text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2 text-rose-400">
-                    <ShieldAlert size={16} /> Anti-Goals / Distraction Log
-                </h3>
-                <div className="flex flex-wrap gap-4">
-                    {config.antiGoals.map(ag => {
-                        const status = activeLog.antiGoals[ag.id] || 'pending';
-                        let statusColor = 'bg-slate-700 text-slate-400';
-                        if (status === 'conquered') statusColor = 'bg-emerald-900/50 border border-emerald-500/50 text-emerald-400';
-                        if (status === 'succumbed') statusColor = 'bg-rose-900/50 border border-rose-500/50 text-rose-400';
-                        
-                        return (
-                            <button 
-                                key={ag.id}
-                                onClick={() => toggleAntiGoal(ag.id)}
-                                className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${statusColor}`}
-                            >
-                                {ag.title}
-                                <span className="block text-[9px] uppercase font-normal opacity-70 mt-1">
-                                    {status === 'pending' ? '?' : status}
-                                </span>
-                            </button>
-                        );
-                    })}
-                </div>
-                <p className="text-[10px] text-slate-500 mt-3 italic">Tap to toggle: Pending → Conquered → Succumbed</p>
-            </div>
-
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {config.categories.map(cat => {
-                const catLog = activeLog.categories[cat.id];
-                return (
-                  <div key={cat.id} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col h-full">
-                    <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-100">
-                      <div className={`text-${cat.color}-600 bg-${cat.color}-50 p-2 rounded-lg`}>
-                        <GraduationCap size={20} />
-                      </div>
-                      <h3 className="font-serif text-lg font-bold text-slate-800 leading-tight">{cat.title}</h3>
-                    </div>
-
-                    <div className="flex-1 mb-6">
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider">Objectives</h4>
-                      {!catLog?.goals.length ? (
-                        <p className="text-sm text-slate-400 italic">No goals set.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {catLog.goals.map((g, i) => {
-                            const status = catLog.goalStatus?.[i] || 'pending';
-                            let statusClasses = '';
-                            let icon = null;
-                            
-                            if (status === 'progress') {
-                                // Yellow
-                                statusClasses = 'bg-amber-50 border border-amber-300 text-amber-800';
-                                icon = <PlayCircle size={10} className="text-amber-500 fill-amber-100" />;
-                            } else if (status === 'completed') {
-                                // Green
-                                statusClasses = 'bg-emerald-50 border border-emerald-500 text-emerald-800';
-                                icon = <CheckCircle2 size={10} className="text-emerald-500 fill-emerald-100" />;
-                            } else {
-                                // Red (Pending/Not Started)
-                                statusClasses = 'bg-red-50 border border-red-200 text-red-800';
-                                icon = <Circle size={10} className="text-red-300" />;
-                            }
-
-                            return (
-                                <div 
-                                key={i} 
-                                onClick={() => cycleGoalStatus(cat.id, i)}
-                                className={`flex items-center justify-between p-2 rounded cursor-pointer transition-all ${statusClasses}`}
-                                >
-                                <span className={`text-xs ${status === 'completed' ? 'line-through opacity-70' : ''} flex-1`}>{g}</span>
-                                <div className="ml-2">{icon}</div>
-                                </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <p className="text-[9px] text-slate-400 text-right mt-2 italic">Tap to cycle: Red → Yellow → Green</p>
-                    </div>
-
-                    <div className="mb-4">
-                        <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
-                            <FileText size={10} /> Field Notes
-                        </h4>
-                        <textarea 
-                            value={catLog?.notes || ''}
-                            onChange={(e) => updateNotes(cat.id, e.target.value)}
-                            placeholder={`Progress notes...`}
-                            className="w-full h-20 text-xs p-2 bg-slate-50 border border-slate-200 rounded resize-none focus:bg-white focus:border-indigo-500 outline-none"
-                        />
-                    </div>
-
-                    <div className="mb-4">
-                        <h4 className="text-[10px] font-bold text-slate-400 uppercase mb-2 tracking-wider flex items-center gap-1">
-                            <HardDrive size={10} /> Proofs / Drive Files
-                        </h4>
-                        <div className="space-y-1 mb-2">
-                             {catLog?.attachments?.map((item, i) => {
-                                 const info = getAttachmentInfo(item);
-                                 return (
-                                    <div key={i} className="flex items-center gap-2 p-1.5 rounded bg-slate-50 hover:bg-indigo-50 border border-slate-100 group transition-colors">
-                                        <a href={info.url} target="_blank" rel="noreferrer" className="flex-1 flex items-center gap-2 overflow-hidden">
-                                            <div className="text-slate-400 group-hover:text-indigo-500 shrink-0">
-                                                {info.type === 'file' ? <HardDrive size={12} /> : (info.url.includes('firebasestorage') ? <UploadCloud size={12} /> : <ExternalLink size={12} />)}
-                                            </div>
-                                            <span className="truncate text-[10px] text-slate-600 flex-1" title={info.name}>{info.name}</span>
-                                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 text-indigo-400" />
-                                        </a>
-                                        <button 
-                                            onClick={() => handleDeleteAttachment(cat.id, i)}
-                                            className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
-                                            title="Remove Attachment"
-                                        >
-                                            <X size={10} />
-                                        </button>
-                                    </div>
-                                 );
-                             })}
-                        </div>
-                        <div className="flex gap-1 items-center">
-                            <input 
-                                value={newLinkInputs[cat.id] || ''}
-                                onChange={(e) => setNewLinkInputs({ ...newLinkInputs, [cat.id]: e.target.value })}
-                                onKeyDown={(e) => e.key === 'Enter' && handleLinkAdd(cat.id)}
-                                placeholder="Paste URL..."
-                                className="flex-1 text-[10px] p-1 border border-slate-200 rounded focus:border-indigo-500 outline-none"
-                            />
-                            
-                            <label className={`cursor-pointer px-2 py-1 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded hover:bg-indigo-100 flex items-center justify-center h-full ml-1 ${uploading === cat.id ? 'opacity-50 pointer-events-none' : ''}`} title="Upload to Drive">
-                                <input 
-                                    type="file" 
-                                    className="hidden" 
-                                    onChange={(e) => e.target.files && e.target.files[0] && handleFileUpload(cat.id, e.target.files[0])}
-                                    disabled={!!uploading}
-                                />
-                                {uploading === cat.id ? (
-                                    <div className="animate-spin h-3 w-3 border-2 border-indigo-500 rounded-full border-t-transparent"></div>
-                                ) : (
-                                    <UploadCloud size={14} />
-                                )}
-                            </label>
-
-                            <button onClick={() => handleLinkAdd(cat.id)} className="px-2 py-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200 ml-1"><Plus size={14} /></button>
-                        </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between bg-slate-50 -mx-5 -mb-5 p-3 rounded-b-xl">
-                      <label className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1"><Clock size={12} /> Hours</label>
-                      <input 
-                        type="number" step="0.5" min="0"
-                        value={catLog?.hours || ''}
-                        onChange={(e) => updateHours(cat.id, parseFloat(e.target.value) || 0)}
-                        className="w-16 text-right font-mono font-bold text-slate-800 bg-white border border-slate-200 rounded p-1 focus:border-indigo-500 outline-none text-sm"
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         {/* --- VIEW: ANALYTICS --- */}
         {view === 'analytics' && stats && (
              <div className="animate-fade-in space-y-6">
@@ -1792,44 +1512,83 @@ export default function ScholarsCompass() {
                                 Generate a consolidated report of your week's progress, including completed objectives, hours logged, and key field notes.
                             </p>
                         </div>
-                        <button 
-                            onClick={generateWeeklyReport}
-                            className="bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-colors shadow-md"
-                        >
-                            <Copy size={16} /> Copy Weekly Report
-                        </button>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => generateWeeklyReport('copy')}
+                                className="bg-white/10 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-white/20 transition-colors backdrop-blur-sm"
+                            >
+                                <Copy size={16} /> Copy Text
+                            </button>
+                            <button 
+                                onClick={() => generateWeeklyReport('print')}
+                                className="bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-colors shadow-md"
+                            >
+                                <Printer size={16} /> Print / Save PDF
+                            </button>
+                        </div>
                     </div>
                  </div>
 
-                 {/* Consistency Heatmap */}
-                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
-                    <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
-                        <Grid size={16} className="text-emerald-500" /> Consistency Heatmap (Last 16 Weeks)
-                    </h3>
-                    <div className="flex flex-wrap gap-1">
-                        {heatmapData.map((day, i) => {
-                            let colorClass = 'bg-slate-100';
-                            if (day.score === 1) colorClass = 'bg-emerald-200';
-                            if (day.score === 2) colorClass = 'bg-emerald-300';
-                            if (day.score === 3) colorClass = 'bg-emerald-400';
-                            if (day.score >= 4) colorClass = 'bg-emerald-600';
-                            
-                            return (
-                                <div 
-                                    key={i} 
-                                    title={`${day.date}: Level ${day.score}`}
-                                    className={`w-3 h-3 rounded-sm ${colorClass}`}
-                                ></div>
-                            );
-                        })}
+                 <div className="grid md:grid-cols-2 gap-6 mb-6">
+                    {/* Work Consistency Heatmap */}
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
+                            <Grid size={16} className="text-emerald-500" /> Work Consistency (Last 16 Weeks)
+                        </h3>
+                        <div className="flex flex-wrap gap-1">
+                            {workHeatmapData.map((day, i) => {
+                                let colorClass = 'bg-slate-100'; // 0 hours
+                                if (day.score === 1) colorClass = 'bg-emerald-200';
+                                if (day.score === 2) colorClass = 'bg-emerald-300';
+                                if (day.score === 3) colorClass = 'bg-emerald-400';
+                                if (day.score >= 4) colorClass = 'bg-emerald-600';
+                                
+                                return (
+                                    <div 
+                                        key={i} 
+                                        title={`${day.date}: Level ${day.score}`}
+                                        className={`w-3 h-3 rounded-sm ${colorClass}`}
+                                    ></div>
+                                );
+                            })}
+                        </div>
+                        <div className="flex items-center gap-2 mt-4 text-[10px] text-slate-400">
+                            <span>Less</span>
+                            <div className="w-2 h-2 bg-slate-100 rounded-sm"></div>
+                            <div className="w-2 h-2 bg-emerald-200 rounded-sm"></div>
+                            <div className="w-2 h-2 bg-emerald-400 rounded-sm"></div>
+                            <div className="w-2 h-2 bg-emerald-600 rounded-sm"></div>
+                            <span>More</span>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-4 text-[10px] text-slate-400">
-                        <span>Less</span>
-                        <div className="w-2 h-2 bg-slate-100 rounded-sm"></div>
-                        <div className="w-2 h-2 bg-emerald-200 rounded-sm"></div>
-                        <div className="w-2 h-2 bg-emerald-400 rounded-sm"></div>
-                        <div className="w-2 h-2 bg-emerald-600 rounded-sm"></div>
-                        <span>More</span>
+
+                    {/* Lifestyle Heatmap */}
+                    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                        <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
+                            <Heart size={16} className="text-rose-500" /> Lifestyle Habits (Last 16 Weeks)
+                        </h3>
+                        <div className="flex flex-wrap gap-1">
+                            {lifestyleHeatmapData.map((day, i) => {
+                                let colorClass = 'bg-slate-100'; // No log
+                                if (day.score === 3) colorClass = 'bg-rose-400'; // 0 habits (Red)
+                                if (day.score === 1) colorClass = 'bg-amber-400'; // 1 habit (Yellow)
+                                if (day.score === 2) colorClass = 'bg-emerald-500'; // 2+ habits (Green)
+                                
+                                return (
+                                    <div 
+                                        key={i} 
+                                        title={`${day.date}`}
+                                        className={`w-3 h-3 rounded-sm ${colorClass}`}
+                                    ></div>
+                                );
+                            })}
+                        </div>
+                        <div className="flex items-center gap-2 mt-4 text-[10px] text-slate-400">
+                            <div className="flex items-center gap-1"><div className="w-2 h-2 bg-slate-100 rounded-sm"></div><span>None</span></div>
+                            <div className="flex items-center gap-1"><div className="w-2 h-2 bg-rose-400 rounded-sm"></div><span>0 Done</span></div>
+                            <div className="flex items-center gap-1"><div className="w-2 h-2 bg-amber-400 rounded-sm"></div><span>1 Done</span></div>
+                            <div className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500 rounded-sm"></div><span>2+ Done</span></div>
+                        </div>
                     </div>
                  </div>
 
