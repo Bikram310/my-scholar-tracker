@@ -1516,6 +1516,8 @@ export default function ScholarsCompass() {
                 <li><strong>Dashboard:</strong> Track goals, hours, files, and distractions.</li>
                 <li><strong>Calendar:</strong> Double-click any date to open <em>Time Machine</em> and see full history.</li>
                 <li><strong>Night:</strong> Rate the day, mark habits, and write reflections.</li>
+                 <li><strong>Uploads 1:Before uploading files please login again just by clicking your google icon(Security Reason).</li>
+                   <li><strong>Uploads 2: You can upload as much as you want after your relogin (Valid for 1 hour, You have to relogin again).</li>
               </ol>
               <div className="mt-3 text-xs text-slate-500">You can revisit anytime via the header “?” badge.</div>
               <div className="mt-3 flex justify-end">
@@ -1706,20 +1708,7 @@ export default function ScholarsCompass() {
                    >
                      Add events
                    </button>
-                   <button 
-                     onClick={removeBulkEvents}
-                     className="text-xs px-3 py-2 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                     disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
-                   >
-                     Remove matching
-                   </button>
-                   <button 
-                     onClick={fillRangeFromSelection}
-                     className="text-xs px-3 py-2 rounded border border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-                     disabled={bulkSelectedDates.size < 2}
-                   >
-                     Fill between first/last
-                   </button>
+                  
                    <button 
                      onClick={clearBulkSelection}
                      className="text-xs px-3 py-2 rounded border border-slate-200 text-slate-500 hover:bg-slate-100"
@@ -1778,13 +1767,13 @@ export default function ScholarsCompass() {
                        <option value="reminder">Reminder</option>
                        <option value="leave">Leave</option>
                      </select>
+                      <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
+                   </div>
                      <label className="flex items-center gap-1 text-[10px] text-slate-500">
                        <input type="checkbox" checked={newEventEmailReminder} onChange={(e) => setNewEventEmailReminder(e.target.checked)} />
                        Email reminders
                      </label>
-                     <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
-                   </div>
-                </div>
+                     </div>
 
                 {/* Distraction Log in Calendar */}
                 <div className="mb-6">
