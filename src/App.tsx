@@ -285,6 +285,13 @@ export default function ScholarsCompass() {
 
   // --- Auth Logic ---
   useEffect(() => {
+    // Check for stored token on mount
+    const storedToken = localStorage.getItem('g_drive_token');
+    const storedExpiry = localStorage.getItem('g_drive_token_expiry');
+    if (storedToken && storedExpiry && Date.now() < parseInt(storedExpiry)) {
+        setGoogleAccessToken(storedToken);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser?.isAnonymous) {
         signOut(auth);
@@ -306,6 +313,9 @@ export default function ScholarsCompass() {
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
           setGoogleAccessToken(credential.accessToken);
+          // Persist token for 1 hour (approx 3500s safe margin)
+          localStorage.setItem('g_drive_token', credential.accessToken);
+          localStorage.setItem('g_drive_token_expiry', (Date.now() + 3500 * 1000).toString());
       }
     } catch (error) {
       console.error("Login failed", error);
@@ -322,6 +332,8 @@ export default function ScholarsCompass() {
     setLogs([]);
     setTodayLog(null);
     setGoogleAccessToken(null);
+    localStorage.removeItem('g_drive_token');
+    localStorage.removeItem('g_drive_token_expiry');
   };
 
   // --- Data Fetching ---
@@ -556,6 +568,20 @@ export default function ScholarsCompass() {
     newCatLog.attachments = [...(newCatLog.attachments || []), newAttachment];
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
     setNewLinkInputs(prev => ({ ...prev, [catId]: '' }));
+  };
+
+  const handleDeleteAttachment = (catId: string, idx: number) => {
+    if (!activeLog) return;
+    const newCatLog = { ...activeLog.categories[catId] };
+    if (!newCatLog.attachments) return;
+    
+    // Filter out by index
+    newCatLog.attachments = newCatLog.attachments.filter((_, i) => i !== idx);
+    
+    saveLog({ 
+        ...activeLog, 
+        categories: { ...activeLog.categories, [catId]: newCatLog } 
+    });
   };
 
   const updateHours = (catId: string, val: number) => {
@@ -1226,13 +1252,22 @@ export default function ScholarsCompass() {
                              {catLog?.attachments?.map((item, i) => {
                                  const info = getAttachmentInfo(item);
                                  return (
-                                    <a key={i} href={info.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-1.5 rounded bg-slate-50 hover:bg-indigo-50 text-[10px] text-slate-600 truncate transition-colors group">
-                                        <div className="text-slate-400 group-hover:text-indigo-500">
-                                            {info.type === 'file' ? <HardDrive size={12} /> : (info.url.includes('firebasestorage') ? <UploadCloud size={12} /> : <ExternalLink size={12} />)}
-                                        </div>
-                                        <span className="truncate flex-1" title={info.name}>{info.name}</span>
-                                        <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 text-indigo-400" />
-                                    </a>
+                                    <div key={i} className="flex items-center gap-2 p-1.5 rounded bg-slate-50 hover:bg-indigo-50 border border-slate-100 group transition-colors">
+                                        <a href={info.url} target="_blank" rel="noreferrer" className="flex-1 flex items-center gap-2 overflow-hidden">
+                                            <div className="text-slate-400 group-hover:text-indigo-500 shrink-0">
+                                                {info.type === 'file' ? <HardDrive size={12} /> : (info.url.includes('firebasestorage') ? <UploadCloud size={12} /> : <ExternalLink size={12} />)}
+                                            </div>
+                                            <span className="truncate text-[10px] text-slate-600 flex-1" title={info.name}>{info.name}</span>
+                                            <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 text-indigo-400" />
+                                        </a>
+                                        <button 
+                                            onClick={() => handleDeleteAttachment(cat.id, i)}
+                                            className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+                                            title="Remove Attachment"
+                                        >
+                                            <X size={10} />
+                                        </button>
+                                    </div>
                                  );
                              })}
                         </div>
