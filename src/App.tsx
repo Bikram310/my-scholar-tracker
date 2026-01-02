@@ -54,7 +54,8 @@ import {
   LogIn,
   UploadCloud,
   HardDrive,
-  Link
+  Link,
+  Info
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -69,9 +70,7 @@ const firebaseConfig = {
   measurementId: "G-71LZ1K6QH9"
 };
 
-// CRITICAL: This ID determines where data is stored in the DB. 
-// NEVER change this string ('research-tracker-v1') or users will lose access to their old data.
-const appId = 'research-tracker-v1'; 
+const appId = 'research-tracker-v1'; // Internal App ID for database structure
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -135,8 +134,8 @@ const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange']
 
 const defaultCategories: CategoryDef[] = [
   { id: 'research', title: 'Research Progress', color: 'indigo', iconKey: 'microscope' },
-  { id: 'interview', title: 'PhD Interview Prep', color: 'emerald', iconKey: 'cap' },
-  { id: 'gate', title: 'GATE Preparation', color: 'amber', iconKey: 'book' }
+  { id: 'interview', title: 'PhD Interview Prep', color: 'emerald', iconKey: 'cap' }
+  // Reduced to 2 preset goals as requested
 ];
 
 const defaultAntiGoals: AntiGoalDef[] = [
@@ -251,6 +250,7 @@ export default function ScholarsCompass() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [showSetupHint, setShowSetupHint] = useState(false);
   
   // State
   const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
@@ -306,6 +306,17 @@ export default function ScholarsCompass() {
     return () => unsubscribe();
   }, []);
 
+  // --- Show Setup Hint on Login ---
+  useEffect(() => {
+    if (user && !user.isAnonymous) {
+      const hasShown = sessionStorage.getItem('setup_hint_shown');
+      if (!hasShown) {
+        setShowSetupHint(true);
+        sessionStorage.setItem('setup_hint_shown', 'true');
+      }
+    }
+  }, [user]);
+
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -336,6 +347,7 @@ export default function ScholarsCompass() {
     setGoogleAccessToken(null);
     localStorage.removeItem('g_drive_token');
     localStorage.removeItem('g_drive_token_expiry');
+    sessionStorage.removeItem('setup_hint_shown');
   };
 
   // --- Data Fetching ---
@@ -407,13 +419,7 @@ export default function ScholarsCompass() {
   const activeLog = useMemo(() => {
     if (!todayLog) return null;
     const mergedLog = { ...todayLog };
-    
-    // --- MIGRATION / SAFETY LOGIC ---
-    // This logic ensures that if you add new features (e.g. 'waterIntake'), 
-    // it hydrates old logs with default values so the app doesn't crash.
-    
     config.categories.forEach(cat => {
-      // 1. Ensure category object exists
       if (!mergedLog.categories[cat.id]) {
         mergedLog.categories[cat.id] = {
           goals: [],
@@ -424,21 +430,13 @@ export default function ScholarsCompass() {
         };
       }
       const catLog = mergedLog.categories[cat.id];
-      // 2. Ensure Arrays Exist
       if (!catLog.goalStatus) catLog.goalStatus = [];
-      if (!catLog.attachments) catLog.attachments = []; // Ensure attachments array exists
-      
-      // 3. Backfill status for existing goals if missing
       while (catLog.goalStatus.length < catLog.goals.length) catLog.goalStatus.push('pending');
     });
-
-    // 4. Ensure new top-level features exist
     if (!mergedLog.antiGoals) mergedLog.antiGoals = {};
+    config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
     if (!mergedLog.events) mergedLog.events = [];
     if (mergedLog.rating === undefined) mergedLog.rating = 0;
-    
-    config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
-
     return mergedLog;
   }, [todayLog, config]);
 
@@ -788,6 +786,43 @@ export default function ScholarsCompass() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
       
+      {/* Setup Hint Popup */}
+      {showSetupHint && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in">
+          <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center relative">
+            <button 
+              onClick={() => setShowSetupHint(false)} 
+              className="absolute top-3 right-3 text-slate-400 hover:text-slate-600"
+            >
+              <X size={20} />
+            </button>
+            <div className="flex justify-center mb-4">
+              <div className="bg-indigo-100 p-3 rounded-full text-indigo-600">
+                <Info size={32} />
+              </div>
+            </div>
+            <h3 className="font-serif text-xl font-bold text-slate-900 mb-2">Welcome, Scholar!</h3>
+            <p className="text-sm text-slate-600 mb-6">
+              Tailor this compass to your journey. Visit the <strong>Setup</strong> tab to add or remove your specific research goals.
+            </p>
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setShowSetupHint(false)} 
+                className="flex-1 py-2 text-slate-600 font-bold hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                Dismiss
+              </button>
+              <button 
+                onClick={() => { setShowSetupHint(false); setView('settings'); }} 
+                className="flex-1 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-md"
+              >
+                Go to Setup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
