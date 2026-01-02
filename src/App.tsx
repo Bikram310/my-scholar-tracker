@@ -162,8 +162,8 @@ const defaultHabits: HabitDef[] = [
 ];
 
 const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-
-const getTodayStr = () => getISTTime().toISOString().split('T')[0];
+const getISTDateStr = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()); // YYYY-MM-DD
+const getTodayStr = () => getISTDateStr();
 
 // --- Helpers for Calendar ---
 const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
@@ -426,6 +426,7 @@ export default function ScholarsCompass() {
       const existing = logs.find(l => l.date === newDate);
       const freshLog = existing || createEmptyLog(newDate);
       setSelectedDate(newDate);
+      setCalDate(new Date(newDate));
       if (!existing) setView('morning');
       return freshLog;
     });
