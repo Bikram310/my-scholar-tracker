@@ -52,6 +52,7 @@ import {
   Target,
   LogOut,
   LogIn,
+  Download,
   UploadCloud,
   HardDrive,
   Link,
@@ -423,18 +424,35 @@ export default function ScholarsCompass() {
     return () => unsubscribe();
   }, [user]);
 
+  // --- Date Rollover Watcher (IST) ---
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const newDate = getTodayStr();
+      if (todayLog?.date !== newDate) {
+        const existing = logs.find(l => l.date === newDate);
+        const freshLog = existing || createEmptyLog(newDate);
+        setTodayLog(freshLog);
+        setSelectedDate(newDate);
+        if (!existing) setView('morning');
+      }
+    }, 60 * 1000);
+    return () => clearInterval(interval);
+  }, [todayLog, logs]);
+
   // --- Core Logic ---
 
+  const createEmptyLog = (date: string): DailyLog => ({
+    date,
+    categories: {},
+    reflection: '',
+    rating: 0,
+    events: [],
+    antiGoals: {},
+    habits: {}
+  });
+
   const getLogForDate = (date: string) => {
-    return logs.find(l => l.date === date) || {
-      date: date,
-      categories: {},
-      reflection: '',
-      rating: 0,
-      events: [],
-      antiGoals: {},
-      habits: {}
-    } as DailyLog;
+    return logs.find(l => l.date === date) || createEmptyLog(date);
   };
 
   const activeLog = useMemo(() => {
@@ -510,6 +528,18 @@ export default function ScholarsCompass() {
   }, [logs]);
 
   // --- Heatmap Data Calculation ---
+  const getHabitCompletionMeta = (log?: DailyLog) => {
+      const totalHabits = config.habits?.length || 0;
+      const completed = log ? Object.entries(log.habits || {}).filter(([id, done]) => done && config.habits?.some(h => h.id === id)).length : 0;
+      let status: 'none' | 'partial' | 'full' = 'none';
+      if (totalHabits > 0) {
+        if (completed === 0) status = 'none';
+        else if (completed === totalHabits) status = 'full';
+        else status = 'partial';
+      }
+      return { completed, totalHabits, status };
+  };
+
   const heatmapData = useMemo(() => {
       // Generate last 16 weeks (approx 112 days)
       const days = [];
@@ -546,6 +576,31 @@ export default function ScholarsCompass() {
       }
       return days;
   }, [logs]);
+
+  const habitHeatmapData = useMemo(() => {
+      const days = [];
+      const today = new Date();
+      const startDate = new Date(today);
+      startDate.setDate(startDate.getDate() - (15 * 7) - startDate.getDay());
+      const endGrid = new Date(today);
+      endGrid.setDate(endGrid.getDate() + (6 - endGrid.getDay()));
+
+      const logMap = new Map(logs.map(l => [l.date, l]));
+      let current = new Date(startDate);
+      while (current <= endGrid) {
+          const dStr = current.toISOString().split('T')[0];
+          const log = logMap.get(dStr);
+          const meta = getHabitCompletionMeta(log);
+          days.push({ 
+            date: dStr, 
+            status: meta.status, 
+            completed: meta.completed, 
+            total: meta.totalHabits 
+          });
+          current.setDate(current.getDate() + 1);
+      }
+      return days;
+  }, [logs, config.habits]);
 
   // --- Handlers ---
 
@@ -786,7 +841,7 @@ export default function ScholarsCompass() {
     return { dailyTotals, weekTotals, monthTotals };
   }, [logs, config]);
 
-  const generateWeeklyReport = () => {
+  const buildWeeklyReport = () => {
     const today = new Date();
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(today.getDate() - 7);
@@ -840,8 +895,57 @@ export default function ScholarsCompass() {
     });
     if (notesCount === 0) report += "No notes recorded.\n";
 
+    return report;
+  };
+
+  const generateWeeklyReport = () => {
+    const report = buildWeeklyReport();
     navigator.clipboard.writeText(report);
     alert("Weekly Report copied to clipboard!");
+  };
+
+  const downloadWeeklyReportPdf = () => {
+    const report = buildWeeklyReport();
+    const lines = report.split('\n').map(l => l.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)'));
+    const contentLines: string[] = ['BT', '/F1 12 Tf', '50 760 Td'];
+    lines.forEach((line, idx) => {
+      if (idx === 0) contentLines.push(`(${line || ' '}) Tj`);
+      else {
+        contentLines.push('0 -16 Td');
+        contentLines.push(`(${line || ' '}) Tj`);
+      }
+    });
+    contentLines.push('ET');
+    const contentStream = contentLines.join('\n');
+    const encoder = new TextEncoder();
+    const contentLength = encoder.encode(contentStream).length;
+
+    let pdf = '%PDF-1.4\n';
+    const offsets: string[] = ['0000000000 65535 f \n'];
+    const addObject = (obj: string) => {
+      offsets.push(pdf.length.toString().padStart(10, '0') + ' 00000 n \n');
+      pdf += obj + '\n';
+    };
+
+    addObject('1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj');
+    addObject('2 0 obj << /Type /Pages /Count 1 /Kids [3 0 R] >> endobj');
+    addObject('3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj');
+    addObject(`4 0 obj << /Length ${contentLength} >> stream\n${contentStream}\nendstream endobj`);
+    addObject('5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj');
+
+    const xrefStart = pdf.length;
+    pdf += 'xref\n';
+    pdf += `0 ${offsets.length}\n`;
+    offsets.forEach(off => { pdf += off; });
+    pdf += `trailer << /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+    const blob = new Blob([pdf], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `scholar-weekly-report-${getTodayStr()}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Library Logic
@@ -886,8 +990,12 @@ export default function ScholarsCompass() {
       const log = logs.find(l => l.date === dateStr);
       const hasEvents = log?.events && log.events.length > 0;
       const rating = log?.rating || 0;
+      const habitMeta = getHabitCompletionMeta(log);
       const isSelected = selectedDate === dateStr;
       const isToday = dateStr === getTodayStr();
+      let lifestyleColor = 'bg-slate-200';
+      if (habitMeta.status === 'partial') lifestyleColor = 'bg-amber-400';
+      if (habitMeta.status === 'full') lifestyleColor = 'bg-emerald-500';
 
       days.push(
         <div 
@@ -908,6 +1016,12 @@ export default function ScholarsCompass() {
              {log?.events?.slice(0, 2).map((ev, i) => (
                <div key={i} className="text-[8px] bg-rose-100 text-rose-700 rounded px-1 truncate">{ev.title}</div>
              ))}
+          </div>
+          <div className="mt-auto flex justify-end">
+            <div 
+              className={`w-3 h-3 rounded-sm border border-slate-200 ${lifestyleColor}`} 
+              title={habitMeta.totalHabits > 0 ? `${habitMeta.completed}/${habitMeta.totalHabits} lifestyle habits` : 'No lifestyle habits configured'}
+            ></div>
           </div>
         </div>
       );
@@ -1355,20 +1469,36 @@ export default function ScholarsCompass() {
                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
                      <Heart size={12} className="text-rose-400" /> Lifestyle
                    </h3>
-                   <div className="flex flex-wrap gap-2">
-                     {config.habits?.map(h => {
-                       const done = getLogForDate(selectedDate).habits?.[h.id];
-                       if (!done) return null;
-                       return (
-                         <span key={h.id} className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full border border-emerald-200">
-                           {h.title}
-                         </span>
-                       )
-                     })}
-                     {!Object.values(getLogForDate(selectedDate).habits || {}).some(Boolean) && (
-                       <p className="text-xs text-slate-400 italic">No habits completed.</p>
-                     )}
-                   </div>
+                   {(() => {
+                      const meta = getHabitCompletionMeta(getLogForDate(selectedDate));
+                      const statusClass = meta.status === 'full' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
+                                         : meta.status === 'partial' ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                         : 'bg-slate-100 text-slate-500 border-slate-200';
+                      const statusLabel = meta.totalHabits === 0 ? 'No lifestyle habits configured' 
+                                          : meta.status === 'full' ? 'All habits followed' 
+                                          : meta.status === 'partial' ? 'Partially followed' 
+                                          : 'Not followed';
+                      return (
+                        <div className="space-y-2">
+                          <div className={`text-[10px] px-2 py-1 rounded-full border inline-flex items-center gap-2 ${statusClass}`}>
+                            <div className="w-2 h-2 rounded-full bg-current opacity-70"></div>
+                            <span className="font-bold uppercase">{statusLabel}</span>
+                            {meta.totalHabits > 0 && <span className="font-mono">{meta.completed}/{meta.totalHabits}</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {config.habits?.map(h => {
+                              const done = getLogForDate(selectedDate).habits?.[h.id];
+                              return (
+                                <span key={h.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${done ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                  {h.title}: {done ? 'Done' : 'Missed'}
+                                </span>
+                              )
+                            })}
+                            {(config.habits?.length || 0) === 0 && <p className="text-xs text-slate-400 italic">No habits configured.</p>}
+                          </div>
+                        </div>
+                      );
+                   })()}
                 </div>
 
                 <div>
@@ -1792,12 +1922,20 @@ export default function ScholarsCompass() {
                                 Generate a consolidated report of your week's progress, including completed objectives, hours logged, and key field notes.
                             </p>
                         </div>
-                        <button 
-                            onClick={generateWeeklyReport}
-                            className="bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-colors shadow-md"
-                        >
-                            <Copy size={16} /> Copy Weekly Report
-                        </button>
+                        <div className="flex gap-2">
+                          <button 
+                              onClick={generateWeeklyReport}
+                              className="bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-50 transition-colors shadow-md"
+                          >
+                              <Copy size={16} /> Copy Weekly Report
+                          </button>
+                          <button 
+                              onClick={downloadWeeklyReportPdf}
+                              className="bg-indigo-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-400 transition-colors shadow-md"
+                          >
+                              <Download size={16} /> Download PDF
+                          </button>
+                        </div>
                     </div>
                  </div>
 
@@ -1823,13 +1961,43 @@ export default function ScholarsCompass() {
                             );
                         })}
                     </div>
+                 <div className="flex items-center gap-2 mt-4 text-[10px] text-slate-400">
+                     <span>Less</span>
+                     <div className="w-2 h-2 bg-slate-100 rounded-sm"></div>
+                     <div className="w-2 h-2 bg-emerald-200 rounded-sm"></div>
+                     <div className="w-2 h-2 bg-emerald-400 rounded-sm"></div>
+                     <div className="w-2 h-2 bg-emerald-600 rounded-sm"></div>
+                     <span>More</span>
+                  </div>
+                 </div>
+
+                 {/* Lifestyle Heatmap */}
+                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-6">
+                    <h3 className="font-bold text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
+                        <Grid size={16} className="text-amber-500" /> Lifestyle Heatmap (Habits)
+                    </h3>
+                    <div className="flex flex-wrap gap-1">
+                        {habitHeatmapData.map((day, i) => {
+                            let colorClass = 'bg-slate-200';
+                            if (day.status === 'partial') colorClass = 'bg-amber-400';
+                            if (day.status === 'full') colorClass = 'bg-emerald-500';
+                            const label = day.total === 0 ? 'No lifestyle habits' : `${day.completed}/${day.total} followed`;
+                            return (
+                                <div 
+                                    key={i} 
+                                    title={`${day.date}: ${label}`}
+                                    className={`w-3 h-3 rounded-sm ${colorClass}`}
+                                ></div>
+                            );
+                        })}
+                    </div>
                     <div className="flex items-center gap-2 mt-4 text-[10px] text-slate-400">
-                        <span>Less</span>
-                        <div className="w-2 h-2 bg-slate-100 rounded-sm"></div>
-                        <div className="w-2 h-2 bg-emerald-200 rounded-sm"></div>
-                        <div className="w-2 h-2 bg-emerald-400 rounded-sm"></div>
-                        <div className="w-2 h-2 bg-emerald-600 rounded-sm"></div>
-                        <span>More</span>
+                        <span>None</span>
+                        <div className="w-2 h-2 bg-slate-200 rounded-sm"></div>
+                        <span>Partial</span>
+                        <div className="w-2 h-2 bg-amber-400 rounded-sm"></div>
+                        <span>Full</span>
+                        <div className="w-2 h-2 bg-emerald-500 rounded-sm"></div>
                     </div>
                  </div>
 
