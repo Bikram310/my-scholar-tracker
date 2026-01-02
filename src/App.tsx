@@ -1695,6 +1695,7 @@ export default function ScholarsCompass() {
                        <input type="checkbox" checked={newEventEmailReminder} onChange={(e) => setNewEventEmailReminder(e.target.checked)} />
                        Email reminders
                      </label>
+                     </div>
                      <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
                    </div>
                 </div>
