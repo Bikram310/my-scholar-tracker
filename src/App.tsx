@@ -55,7 +55,8 @@ import {
   UploadCloud,
   HardDrive,
   Link,
-  Info
+  Info,
+  History
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -269,6 +270,7 @@ export default function ScholarsCompass() {
   // Calendar State
   const [calDate, setCalDate] = useState(getISTTime());
   const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
+  const [historyDate, setHistoryDate] = useState<string | null>(null); // For Time Machine Modal
   const [newEventInput, setNewEventInput] = useState('');
   
   // Temp state
@@ -753,7 +755,8 @@ export default function ScholarsCompass() {
         <div 
           key={d} 
           onClick={() => setSelectedDate(dateStr)}
-          className={`h-24 p-1 border cursor-pointer transition-colors flex flex-col justify-between relative
+          onDoubleClick={() => setHistoryDate(dateStr)} // Double click for Time Machine
+          className={`h-24 p-1 border cursor-pointer transition-colors flex flex-col justify-between relative select-none
             ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-white z-10' : 'border-slate-200 bg-white hover:bg-slate-50'}
             ${isToday ? 'bg-indigo-50' : ''}
           `}
@@ -786,6 +789,148 @@ export default function ScholarsCompass() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-20">
       
+      {/* Time Machine Modal */}
+      {historyDate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col">
+            
+            {/* Header */}
+            <div className="sticky top-0 bg-white border-b border-slate-200 p-4 flex justify-between items-center z-10">
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                  <History size={24} />
+                </div>
+                <div>
+                  <h2 className="font-serif text-2xl font-bold text-slate-900">Time Machine</h2>
+                  <p className="text-sm text-slate-500 font-mono">{historyDate}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setHistoryDate(null)}
+                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+              >
+                <X size={24} className="text-slate-400" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-8">
+              
+              {/* Top Summary */}
+              <div className="flex flex-col md:flex-row gap-6">
+                <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Day Rating</h3>
+                   <StarRating rating={getLogForDate(historyDate).rating} readOnly />
+                </div>
+                <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Events & Deadlines</h3>
+                   <div className="space-y-1">
+                     {getLogForDate(historyDate).events?.length === 0 ? (
+                       <p className="text-sm text-slate-400 italic">No events recorded.</p>
+                     ) : (
+                       getLogForDate(historyDate).events.map(ev => (
+                         <div key={ev.id} className="text-sm text-rose-700 font-medium flex items-center gap-2">
+                           <Bell size={12} /> {ev.title}
+                         </div>
+                       ))
+                     )}
+                   </div>
+                </div>
+                <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Distractions</h3>
+                   <div className="space-y-1">
+                     {Object.entries(getLogForDate(historyDate).antiGoals).map(([id, status]) => {
+                        const def = config.antiGoals.find(ag => ag.id === id);
+                        if (!def || status === 'pending') return null;
+                        return (
+                          <div key={id} className={`text-xs font-bold px-2 py-1 rounded w-fit ${status === 'conquered' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                            {def.title}: {status.toUpperCase()}
+                          </div>
+                        );
+                     })}
+                     {!Object.values(getLogForDate(historyDate).antiGoals).some(s => s !== 'pending') && (
+                       <p className="text-sm text-slate-400 italic">No distractions logged.</p>
+                     )}
+                   </div>
+                </div>
+              </div>
+
+              {/* Main Logs */}
+              <div className="grid md:grid-cols-2 gap-6">
+                {config.categories.map(cat => {
+                   const data = getLogForDate(historyDate).categories[cat.id];
+                   if (!data) return null;
+                   return (
+                     <div key={cat.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                        <div className={`flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 text-${cat.color}-600`}>
+                           <Target size={18} />
+                           <h3 className="font-bold text-lg">{cat.title}</h3>
+                           <span className="ml-auto font-mono text-sm bg-slate-100 px-2 py-1 rounded text-slate-600">{data.hours} hrs</span>
+                        </div>
+
+                        {/* Goals Snapshot */}
+                        <div className="mb-4">
+                           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Objectives</h4>
+                           <div className="space-y-2">
+                              {data.goals.map((g, i) => {
+                                const status = data.goalStatus[i] || 'pending';
+                                let color = 'bg-slate-100 text-slate-500 border-slate-200';
+                                if (status === 'progress') color = 'bg-amber-50 text-amber-700 border-amber-200';
+                                if (status === 'completed') color = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                return (
+                                  <div key={i} className={`text-sm p-2 rounded border ${color} flex justify-between`}>
+                                    <span>{g}</span>
+                                    <span className="text-[10px] uppercase font-bold self-center">{status}</span>
+                                  </div>
+                                );
+                              })}
+                              {data.goals.length === 0 && <p className="text-sm text-slate-400 italic">No goals set.</p>}
+                           </div>
+                        </div>
+
+                        {/* Notes Snapshot */}
+                        <div className="mb-4">
+                           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Field Notes</h4>
+                           <div className="bg-slate-50 p-3 rounded-lg text-sm text-slate-700 whitespace-pre-wrap border border-slate-100 min-h-[60px]">
+                              {data.notes || <span className="italic text-slate-400">No notes recorded.</span>}
+                           </div>
+                        </div>
+
+                        {/* Attachments Snapshot */}
+                        <div>
+                           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Attachments</h4>
+                           <div className="space-y-1">
+                              {data.attachments?.map((item, i) => {
+                                 const info = getAttachmentInfo(item);
+                                 return (
+                                   <a key={i} href={info.url} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 hover:underline truncate">
+                                     📎 {info.name}
+                                   </a>
+                                 )
+                              })}
+                              {(!data.attachments || data.attachments.length === 0) && <p className="text-sm text-slate-400 italic">No files.</p>}
+                           </div>
+                        </div>
+                     </div>
+                   );
+                })}
+              </div>
+
+              {/* Nightly Reflection */}
+              <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-xl">
+                 <h3 className="text-indigo-900 font-serif font-bold text-lg mb-3 flex items-center gap-2">
+                    <Moon size={20} /> Nightly Reflection
+                 </h3>
+                 <p className="text-indigo-800/80 whitespace-pre-wrap leading-relaxed">
+                    {getLogForDate(historyDate).reflection || "No reflection recorded for this day."}
+                 </p>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Setup Hint Popup */}
       {showSetupHint && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in">
@@ -920,6 +1065,7 @@ export default function ScholarsCompass() {
                   ))}
                   {renderCalendar()}
                 </div>
+                <div className="mt-4 text-xs text-center text-slate-400 italic">Double-click a date to view full history (Time Machine)</div>
               </div>
 
               <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
