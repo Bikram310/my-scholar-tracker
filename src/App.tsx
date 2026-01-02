@@ -1063,6 +1063,30 @@ export default function ScholarsCompass() {
                  ))}
                </div>
                <button onClick={addAntiGoal} className="flex items-center gap-2 text-sm font-bold text-rose-600 hover:text-rose-700"><Plus size={16} /> Add Anti-Goal</button>
+
+               {/* ACCOUNT SECTION */}
+               <div className="border-t border-slate-200 pt-6 mt-8">
+                 <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Account</h2>
+                 <div className="flex items-center gap-4 mb-4">
+                    {user?.photoURL ? (
+                        <img src={user.photoURL} className="w-10 h-10 rounded-full border border-slate-200" alt="Profile" />
+                    ) : (
+                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold border border-indigo-200">
+                            {user?.displayName?.[0] || user?.email?.[0] || 'U'}
+                        </div>
+                    )}
+                    <div>
+                        <div className="text-sm font-bold text-slate-700">{user?.displayName || 'Scholar'}</div>
+                        <div className="text-xs text-slate-500">{user?.email}</div>
+                    </div>
+                 </div>
+                 <button 
+                    onClick={handleLogout}
+                    className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-600 p-3 rounded-xl font-bold hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                 >
+                    <LogOut size={18} /> Sign Out
+                 </button>
+               </div>
              </div>
            </div>
         )}
