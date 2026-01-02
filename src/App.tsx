@@ -57,7 +57,9 @@ import {
   Link,
   Info,
   History,
-  ShieldCheck
+  ShieldCheck,
+  Activity,
+  Heart
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -95,6 +97,11 @@ interface AntiGoalDef {
   title: string;
 }
 
+interface HabitDef {
+  id: string;
+  title: string;
+}
+
 interface CalendarEvent {
   id: string;
   title: string;
@@ -123,11 +130,13 @@ interface DailyLog {
   rating: number; // 0-5 stars
   events: CalendarEvent[];
   antiGoals: Record<string, AntiGoalStatus>;
+  habits: Record<string, boolean>; // id -> completed (true/false)
 }
 
 interface UserConfig {
   categories: CategoryDef[];
   antiGoals: AntiGoalDef[];
+  habits: HabitDef[];
   streakFreezes: number;
 }
 
@@ -137,12 +146,16 @@ const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange']
 const defaultCategories: CategoryDef[] = [
   { id: 'research', title: 'Research Progress', color: 'indigo', iconKey: 'microscope' },
   { id: 'interview', title: 'PhD Interview Prep', color: 'emerald', iconKey: 'cap' }
-  // Reduced to 2 preset goals as requested
 ];
 
 const defaultAntiGoals: AntiGoalDef[] = [
   { id: 'ag_social', title: 'Social Media Scrolling' },
   { id: 'ag_procrast', title: 'Procrastination' }
+];
+
+const defaultHabits: HabitDef[] = [
+  { id: 'h_walk', title: 'Morning Walk' },
+  { id: 'h_read', title: 'Read Non-Academic' }
 ];
 
 const getISTTime = () => {
@@ -255,7 +268,7 @@ export default function ScholarsCompass() {
   const [showSetupHint, setShowSetupHint] = useState(false);
   
   // State
-  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 });
+  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2 });
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [todayLog, setTodayLog] = useState<DailyLog | null>(null);
   
@@ -364,10 +377,11 @@ export default function ScholarsCompass() {
         setConfig({
             categories: data.categories || defaultCategories,
             antiGoals: data.antiGoals || defaultAntiGoals,
+            habits: data.habits || defaultHabits,
             streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2
         });
       } else {
-        setDoc(configRef, { categories: defaultCategories, antiGoals: defaultAntiGoals, streakFreezes: 2 })
+        setDoc(configRef, { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2 })
           .catch(e => console.error("Config Init Error", e));
       }
     }).catch(err => {
@@ -393,7 +407,8 @@ export default function ScholarsCompass() {
           reflection: '',
           rating: 0,
           events: [],
-          antiGoals: {}
+          antiGoals: {},
+          habits: {}
         });
         if (fetchedLogs.length === 0) setView('morning');
       }
@@ -415,7 +430,8 @@ export default function ScholarsCompass() {
       reflection: '',
       rating: 0,
       events: [],
-      antiGoals: {}
+      antiGoals: {},
+      habits: {}
     } as DailyLog;
   };
 
@@ -438,6 +454,10 @@ export default function ScholarsCompass() {
     });
     if (!mergedLog.antiGoals) mergedLog.antiGoals = {};
     config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
+    
+    if (!mergedLog.habits) mergedLog.habits = {};
+    config.habits?.forEach(h => { if (mergedLog.habits[h.id] === undefined) mergedLog.habits[h.id] = false; });
+
     if (!mergedLog.events) mergedLog.events = [];
     if (mergedLog.rating === undefined) mergedLog.rating = 0;
     return mergedLog;
@@ -634,6 +654,25 @@ export default function ScholarsCompass() {
   
   const updateAntiGoalTitle = (id: string, title: string) => {
       saveConfig({ ...config, antiGoals: config.antiGoals.map(ag => ag.id === id ? {...ag, title} : ag)});
+  };
+
+  const toggleHabit = (hId: string) => {
+      if (!activeLog) return;
+      const current = activeLog.habits[hId] || false;
+      saveLog({ ...activeLog, habits: { ...activeLog.habits, [hId]: !current } });
+  };
+
+  const addHabit = () => {
+      const id = `h_${Date.now()}`;
+      saveConfig({ ...config, habits: [...(config.habits || []), { id, title: 'New Habit' }]});
+  };
+
+  const deleteHabit = (id: string) => {
+      saveConfig({ ...config, habits: config.habits?.filter(h => h.id !== id)});
+  };
+
+  const updateHabitTitle = (id: string, title: string) => {
+      saveConfig({ ...config, habits: config.habits?.map(h => h.id === id ? {...h, title} : h)});
   };
 
   const addEvent = (date: string) => {
@@ -922,6 +961,19 @@ export default function ScholarsCompass() {
                  <h3 className="text-indigo-900 font-serif font-bold text-lg mb-3 flex items-center gap-2">
                     <Moon size={20} /> Nightly Reflection
                  </h3>
+                 <div className="mb-4">
+                   <h4 className="text-xs font-bold text-indigo-400 uppercase mb-2">Lifestyle & Habits</h4>
+                   <div className="flex flex-wrap gap-2">
+                     {config.habits?.map(h => {
+                       const done = getLogForDate(historyDate).habits?.[h.id];
+                       return (
+                         <span key={h.id} className={`text-xs px-2 py-1 rounded border ${done ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'}`}>
+                           {h.title}: {done ? 'Done' : 'Missed'}
+                         </span>
+                       )
+                     })}
+                   </div>
+                 </div>
                  <p className="text-indigo-800/80 whitespace-pre-wrap leading-relaxed">
                     {getLogForDate(historyDate).reflection || "No reflection recorded for this day."}
                  </p>
@@ -1114,7 +1166,6 @@ export default function ScholarsCompass() {
                   ))}
                   {renderCalendar()}
                 </div>
-                <div className="mt-4 text-xs text-center text-slate-400 italic">Double-click a date to view full history (Time Machine)</div>
               </div>
 
               <div className="w-full md:w-80 bg-white p-5 rounded-xl border border-slate-200 shadow-sm h-fit">
@@ -1198,6 +1249,27 @@ export default function ScholarsCompass() {
                         <p className="text-xs text-slate-400 italic">No files attached for this date.</p>
                     )}
                     </div>
+                </div>
+
+                {/* Lifestyle Summary in Calendar */}
+                <div className="mb-6">
+                   <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
+                     <Heart size={12} className="text-rose-400" /> Lifestyle
+                   </h3>
+                   <div className="flex flex-wrap gap-2">
+                     {config.habits?.map(h => {
+                       const done = getLogForDate(selectedDate).habits?.[h.id];
+                       if (!done) return null;
+                       return (
+                         <span key={h.id} className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full border border-emerald-200">
+                           {h.title}
+                         </span>
+                       )
+                     })}
+                     {!Object.values(getLogForDate(selectedDate).habits || {}).some(Boolean) && (
+                       <p className="text-xs text-slate-400 italic">No habits completed.</p>
+                     )}
+                   </div>
                 </div>
 
                 <div>
@@ -1294,6 +1366,22 @@ export default function ScholarsCompass() {
                </div>
                <button onClick={addCategory} className="flex items-center gap-2 text-sm font-bold text-indigo-600 hover:text-indigo-700 mb-8"><Plus size={16} /> Add New Plan</button>
                
+               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Lifestyle Habits</h2>
+               <div className="space-y-4 mb-6">
+                 {config.habits?.map((h) => (
+                   <div key={h.id} className="flex items-center gap-3">
+                     <Activity size={16} className="text-slate-400" />
+                     <input 
+                       value={h.title}
+                       onChange={(e) => updateHabitTitle(h.id, e.target.value)}
+                       className="flex-1 p-2 border border-slate-300 rounded text-sm font-bold text-slate-700 focus:border-indigo-500 outline-none"
+                     />
+                     <button onClick={() => deleteHabit(h.id)} className="p-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
+                   </div>
+                 ))}
+               </div>
+               <button onClick={addHabit} className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700 mb-8"><Plus size={16} /> Add Habit</button>
+
                <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Anti-Goals (Distractions)</h2>
                <div className="space-y-4 mb-6">
                  {config.antiGoals.map((ag) => (
@@ -1644,6 +1732,32 @@ export default function ScholarsCompass() {
               <div>
                   <label className="block text-sm font-bold text-slate-700 mb-3">Rate your day</label>
                   <StarRating rating={activeLog.rating} onChange={(r) => saveLog({ ...activeLog, rating: r })} />
+              </div>
+
+              {/* Lifestyle Habits Section */}
+              <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                <h4 className="font-bold text-emerald-900 uppercase text-xs tracking-wider mb-3 flex items-center gap-2">
+                  <Activity size={14} /> Lifestyle Protocol
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  {config.habits?.map((h) => {
+                    const isDone = activeLog.habits?.[h.id] || false;
+                    return (
+                      <button
+                        key={h.id}
+                        onClick={() => toggleHabit(h.id)}
+                        className={`flex items-center justify-between p-3 rounded-lg border text-sm font-medium transition-all ${
+                          isDone 
+                            ? 'bg-emerald-100 border-emerald-300 text-emerald-800' 
+                            : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span>{h.title}</span>
+                        {isDone ? <CheckCircle2 size={16} /> : <Circle size={16} />}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
               
               <div>
