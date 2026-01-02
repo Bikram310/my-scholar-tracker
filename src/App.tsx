@@ -108,8 +108,9 @@ interface HabitDef {
 interface CalendarEvent {
   id: string;
   title: string;
-  type: 'workshop' | 'deadline' | 'reminder';
+  type: 'workshop' | 'deadline' | 'reminder' | 'leave';
   completed: boolean;
+  reminderEmail?: boolean;
 }
 
 interface Attachment {
@@ -284,6 +285,13 @@ export default function ScholarsCompass() {
   const [selectedDate, setSelectedDate] = useState<string>(getTodayStr());
   const [historyDate, setHistoryDate] = useState<string | null>(null); // For Time Machine Modal
   const [newEventInput, setNewEventInput] = useState('');
+  const [newEventType, setNewEventType] = useState<'workshop' | 'deadline' | 'reminder' | 'leave'>('workshop');
+  const [newEventEmailReminder, setNewEventEmailReminder] = useState(false);
+  const [bulkSelectMode, setBulkSelectMode] = useState(false);
+  const [bulkSelectedDates, setBulkSelectedDates] = useState<Set<string>>(new Set());
+  const [bulkEventTitle, setBulkEventTitle] = useState('');
+  const [bulkEventType, setBulkEventType] = useState<'workshop' | 'deadline' | 'reminder' | 'leave'>('workshop');
+  const [bulkEmailReminder, setBulkEmailReminder] = useState(false);
   
   // Temp state
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
@@ -501,6 +509,33 @@ export default function ScholarsCompass() {
     setConfig(newConfig);
     await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main'), newConfig);
   };
+
+  // Email reminder scheduling (best effort - tab must stay open)
+  useEffect(() => {
+    const timers: NodeJS.Timeout[] = [];
+    if (user?.email) {
+      logs.forEach(log => {
+        (log.events || []).forEach(evt => {
+          if (!evt.reminderEmail) return;
+          const eventDate = new Date(`${log.date}T00:00:00+05:30`);
+          const now = new Date();
+          const offsets = [24, 12];
+          offsets.forEach(hours => {
+            const fireTime = new Date(eventDate.getTime() - hours * 60 * 60 * 1000);
+            const delay = fireTime.getTime() - now.getTime();
+            if (delay > 0 && delay < 1000 * 60 * 60 * 24 * 14) { // limit to 14 days ahead
+              const timer = setTimeout(() => {
+                const mailto = `mailto:${user.email}?subject=${encodeURIComponent(`Reminder: ${evt.title}`)}&body=${encodeURIComponent(`This is your ${hours} hour reminder for ${evt.title} on ${log.date}.`)}`;
+                window.open(mailto, '_blank');
+              }, delay);
+              timers.push(timer);
+            }
+          });
+        });
+      });
+    }
+    return () => timers.forEach(t => clearTimeout(t));
+  }, [logs, user]);
 
   // --- Streak Calculation ---
   const currentStreak = useMemo(() => {
@@ -778,16 +813,49 @@ export default function ScholarsCompass() {
   const addEvent = (date: string) => {
     if (!newEventInput.trim()) return;
     const log = getLogForDate(date);
-    const newEvent: CalendarEvent = { id: `evt_${Date.now()}`, title: newEventInput.trim(), type: 'workshop', completed: false };
+    const newEvent: CalendarEvent = { id: `evt_${Date.now()}`, title: newEventInput.trim(), type: newEventType, completed: false, reminderEmail: newEventEmailReminder };
     const updatedLog = { ...log, events: [...(log.events || []), newEvent] };
     saveLog(updatedLog);
     setNewEventInput('');
+    setNewEventType('workshop');
+    setNewEventEmailReminder(false);
   };
 
   const deleteEvent = (date: string, evtId: string) => {
     const log = getLogForDate(date);
     const updatedLog = { ...log, events: log.events.filter(e => e.id !== evtId) };
     saveLog(updatedLog);
+  };
+
+  const toggleBulkDate = (date: string) => {
+    setBulkSelectedDates(prev => {
+      const next = new Set(prev);
+      if (next.has(date)) next.delete(date); else next.add(date);
+      return next;
+    });
+  };
+
+  const clearBulkSelection = () => setBulkSelectedDates(new Set());
+
+  const addBulkEvents = () => {
+    if (!bulkEventTitle.trim() || bulkSelectedDates.size === 0) return;
+    bulkSelectedDates.forEach(date => {
+      const log = getLogForDate(date);
+      const newEvent: CalendarEvent = { 
+        id: `evt_${Date.now()}_${date}`, 
+        title: bulkEventTitle.trim(), 
+        type: bulkEventType, 
+        completed: false,
+        reminderEmail: bulkEmailReminder
+      };
+      const updatedLog = { ...log, events: [...(log.events || []), newEvent] };
+      saveLog(updatedLog);
+    });
+    setBulkEventTitle('');
+    setBulkEventType('workshop');
+    setBulkEmailReminder(false);
+    clearBulkSelection();
+    setBulkSelectMode(false);
   };
 
   const updateCategoryTitle = (id: string, newTitle: string) => {
@@ -1005,7 +1073,10 @@ export default function ScholarsCompass() {
       days.push(
         <div 
           key={d} 
-          onClick={() => setSelectedDate(dateStr)}
+          onClick={() => {
+            if (bulkSelectMode) toggleBulkDate(dateStr);
+            setSelectedDate(dateStr);
+          }}
           onDoubleClick={() => setHistoryDate(dateStr)} // Double click for Time Machine
           className={`h-24 p-1 border cursor-pointer transition-colors flex flex-col justify-between relative select-none
             ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-white z-10' : 'border-slate-200 bg-white hover:bg-slate-50'}
@@ -1016,6 +1087,17 @@ export default function ScholarsCompass() {
              <span className={`text-xs font-bold ${isToday ? 'text-indigo-600' : 'text-slate-700'}`}>{d}</span>
              {hasEvents && <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>}
           </div>
+          {bulkSelectMode && (
+            <div className="absolute top-1 right-1">
+              <input 
+                type="checkbox" 
+                checked={bulkSelectedDates.has(dateStr)} 
+                onChange={() => toggleBulkDate(dateStr)} 
+                className="w-4 h-4 text-indigo-600 border-slate-300 rounded"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
           <div className="flex flex-col gap-0.5 mt-1 overflow-hidden">
              {rating > 0 && <div className="flex justify-center my-1"><StarRating rating={rating} readOnly /></div>}
              {log?.events?.slice(0, 2).map((ev, i) => (
@@ -1393,9 +1475,68 @@ export default function ScholarsCompass() {
                      <div className="font-serif text-xl font-bold text-slate-900">{selectedDate}</div>
                    </div>
                    {selectedDate === getTodayStr() && <div className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Today</div>}
-                </div>
+               </div>
+               
+               {/* Bulk Selection Controls */}
+               <div className="mb-6 border border-dashed border-slate-200 rounded-lg p-3 bg-slate-50">
+                 <div className="flex items-center justify-between mb-2">
+                   <div className="text-xs font-bold text-slate-700 uppercase flex items-center gap-2">
+                     <CalendarIcon size={12} /> Bulk date selection
+                   </div>
+                   <button 
+                     onClick={() => { setBulkSelectMode(!bulkSelectMode); if (!bulkSelectMode) clearBulkSelection(); }}
+                     className={`text-[11px] px-2 py-1 rounded font-bold ${bulkSelectMode ? 'bg-indigo-100 text-indigo-700' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}
+                   >
+                     {bulkSelectMode ? 'Selecting...' : 'Start selecting'}
+                   </button>
+                 </div>
+                 <div className="text-[11px] text-slate-500 mb-2">Click dates in the calendar to toggle them.</div>
+                 <div className="flex flex-wrap gap-2 mb-2">
+                   {Array.from(bulkSelectedDates).map(d => (
+                     <span key={d} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-700 rounded border border-indigo-200">{d}</span>
+                   ))}
+                   {bulkSelectedDates.size === 0 && <span className="text-[11px] text-slate-400 italic">No dates selected.</span>}
+                 </div>
+                 <div className="flex gap-2 mb-2">
+                   <input 
+                     value={bulkEventTitle}
+                     onChange={(e) => setBulkEventTitle(e.target.value)}
+                     placeholder="Workshop / Leave title..."
+                     className="flex-1 text-xs p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
+                   />
+                   <select 
+                     value={bulkEventType}
+                     onChange={(e) => setBulkEventType(e.target.value as any)}
+                     className="text-xs p-2 border border-slate-200 rounded bg-white"
+                   >
+                     <option value="workshop">Workshop</option>
+                     <option value="deadline">Deadline</option>
+                     <option value="reminder">Reminder</option>
+                     <option value="leave">Leave</option>
+                   </select>
+                 </div>
+                 <label className="flex items-center gap-2 text-[11px] text-slate-600 mb-2">
+                   <input type="checkbox" checked={bulkEmailReminder} onChange={(e) => setBulkEmailReminder(e.target.checked)} />
+                   Email reminder (opens mail client 24h & 12h before, tab must be open)
+                 </label>
+                 <div className="flex gap-2">
+                   <button 
+                     onClick={addBulkEvents}
+                     className="flex-1 bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
+                     disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
+                   >
+                     Add to selected dates
+                   </button>
+                   <button 
+                     onClick={clearBulkSelection}
+                     className="text-xs px-3 py-2 rounded border border-slate-200 text-slate-500 hover:bg-slate-100"
+                   >
+                     Clear
+                   </button>
+                 </div>
+               </div>
 
-                <div className="mb-6">
+               <div className="mb-6">
                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
                      <Bell size={12} className="text-rose-500" /> Events
                    </h3>
@@ -1404,6 +1545,7 @@ export default function ScholarsCompass() {
                      {getLogForDate(selectedDate).events?.map(evt => (
                        <div key={evt.id} className="flex justify-between items-center bg-rose-50 text-rose-900 p-2 rounded text-xs border border-rose-100">
                           <span>{evt.title}</span>
+                          {evt.reminderEmail && <span className="text-[9px] text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">Email 24h/12h</span>}
                           <button onClick={() => deleteEvent(selectedDate, evt.id)} className="text-rose-400 hover:text-rose-600"><X size={12} /></button>
                        </div>
                      ))}
@@ -1416,6 +1558,20 @@ export default function ScholarsCompass() {
                        placeholder="Add workshop..."
                        className="flex-1 text-xs p-2 border border-slate-200 rounded focus:border-rose-500 outline-none"
                      />
+                     <select 
+                       value={newEventType}
+                       onChange={(e) => setNewEventType(e.target.value as any)}
+                       className="text-xs p-2 border border-slate-200 rounded bg-white"
+                     >
+                       <option value="workshop">Workshop</option>
+                       <option value="deadline">Deadline</option>
+                       <option value="reminder">Reminder</option>
+                       <option value="leave">Leave</option>
+                     </select>
+                     <label className="flex items-center gap-1 text-[10px] text-slate-500">
+                       <input type="checkbox" checked={newEventEmailReminder} onChange={(e) => setNewEventEmailReminder(e.target.checked)} />
+                       Email reminders
+                     </label>
                      <button onClick={() => addEvent(selectedDate)} className="bg-rose-600 text-white p-2 rounded hover:bg-rose-700"><Plus size={14} /></button>
                    </div>
                 </div>
