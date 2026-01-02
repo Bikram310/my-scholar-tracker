@@ -854,6 +854,12 @@ export default function ScholarsCompass() {
     saveLog(updatedLog);
   };
 
+  const clearAllEventsForDate = (date: string) => {
+    const log = getLogForDate(date);
+    if (!log.events || log.events.length === 0) return;
+    saveLog({ ...log, events: [] });
+  };
+
   const getDateRange = (start: string, end: string) => {
     const dates: string[] = [];
     const s = new Date(start);
@@ -922,6 +928,16 @@ export default function ScholarsCompass() {
         events: (log.events || []).filter(ev => !(ev.title === bulkEventTitle.trim() && ev.type === bulkEventType))
       };
       saveLog(updatedLog);
+    });
+    clearBulkSelection();
+  };
+
+  const removeAllEventsFromBulkDates = () => {
+    if (bulkSelectedDates.size === 0) return;
+    bulkSelectedDates.forEach(date => {
+      const log = getLogForDate(date);
+      if ((log.events || []).length === 0) return;
+      saveLog({ ...log, events: [] });
     });
     clearBulkSelection();
   };
@@ -1569,7 +1585,7 @@ export default function ScholarsCompass() {
                <div className="mb-6 border border-dashed border-slate-200 rounded-lg p-3 bg-slate-50">
                  <div className="flex items-center justify-between mb-2">
                    <div className="text-xs font-bold text-slate-700 uppercase flex items-center gap-2">
-                     <CalendarIcon size={12} /> Bulk date selection
+                     <CalendarIcon size={12} /> Bulk events
                    </div>
                    <button 
                      onClick={() => { setBulkSelectMode(!bulkSelectMode); if (!bulkSelectMode) { clearBulkSelection(); setBulkAnchorDate(null); } }}
@@ -1614,14 +1630,14 @@ export default function ScholarsCompass() {
                      className="flex-1 bg-indigo-600 text-white text-xs font-bold px-3 py-2 rounded hover:bg-indigo-700 disabled:opacity-50"
                      disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
                    >
-                     Add to selected dates
+                     Add events
                    </button>
                    <button 
                      onClick={removeBulkEvents}
                      className="text-xs px-3 py-2 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
                      disabled={bulkSelectedDates.size === 0 || !bulkEventTitle.trim()}
                    >
-                     Remove from selected dates
+                     Remove matching
                    </button>
                    <button 
                      onClick={fillRangeFromSelection}
@@ -1634,15 +1650,32 @@ export default function ScholarsCompass() {
                      onClick={clearBulkSelection}
                      className="text-xs px-3 py-2 rounded border border-slate-200 text-slate-500 hover:bg-slate-100"
                    >
-                     Clear
+                     Clear selection
+                   </button>
+                   <button 
+                     onClick={removeAllEventsFromBulkDates}
+                     className="text-xs px-3 py-2 rounded border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                     disabled={bulkSelectedDates.size === 0}
+                   >
+                     Remove all on dates
                    </button>
                  </div>
                </div>
 
-               <div className="mb-6">
+                <div className="mb-6">
                    <h3 className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-2">
                      <Bell size={12} className="text-rose-500" /> Events
                    </h3>
+                   <div className="flex justify-between items-center mb-2">
+                     <span className="text-[11px] text-slate-500">Manage events for this date.</span>
+                     <button 
+                       onClick={() => clearAllEventsForDate(selectedDate)} 
+                       className="text-[11px] px-2 py-1 rounded border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                       disabled={getLogForDate(selectedDate).events?.length === 0}
+                     >
+                       Remove all
+                     </button>
+                   </div>
                    <div className="space-y-2 mb-3">
                      {getLogForDate(selectedDate).events?.length === 0 && <p className="text-xs text-slate-400 italic">No events scheduled.</p>}
                      {getLogForDate(selectedDate).events?.map(evt => (
