@@ -388,6 +388,9 @@ export default function ScholarsCompass() {
   const [newGroupName, setNewGroupName] = useState('');
   const [joinGroupId, setJoinGroupId] = useState('');
   const activeGroup = groups.find(g => g.id === currentGroupId);
+  const isGroupMode = !!activeGroup;
+  const [groupActionError, setGroupActionError] = useState<string | null>(null);
+  const [groupActionLoading, setGroupActionLoading] = useState(false);
 
   // --- Clock ---
   useEffect(() => {
@@ -1048,27 +1051,46 @@ export default function ScholarsCompass() {
 
   const createGroup = async () => {
       if (!user || !newGroupName.trim()) return;
-      const groupsRef = collection(db, 'artifacts', appId, 'groups');
-      const createdAt = new Date().toISOString();
-      const groupDoc = await addDoc(groupsRef, { name: newGroupName.trim(), ownerUid: user.uid, createdAt });
-      const groupId = groupDoc.id;
-      await setDoc(doc(db, 'artifacts', appId, 'groups', groupId, 'members', user.uid), { role: 'owner', joinedAt: createdAt });
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'groups', groupId), { name: newGroupName.trim(), ownerUid: user.uid, createdAt, role: 'owner' });
-      setNewGroupName('');
-      setCurrentGroupId(groupId);
+      setGroupActionError(null);
+      setGroupActionLoading(true);
+      try {
+        const groupsRef = collection(db, 'artifacts', appId, 'groups');
+        const createdAt = new Date().toISOString();
+        const groupDoc = await addDoc(groupsRef, { name: newGroupName.trim(), ownerUid: user.uid, createdAt });
+        const groupId = groupDoc.id;
+        await setDoc(doc(db, 'artifacts', appId, 'groups', groupId, 'members', user.uid), { role: 'owner', joinedAt: createdAt });
+        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'groups', groupId), { name: newGroupName.trim(), ownerUid: user.uid, createdAt, role: 'owner' });
+        setNewGroupName('');
+        setCurrentGroupId(groupId);
+      } catch (e: any) {
+        console.error("Group create error", e);
+        setGroupActionError(e?.message || 'Unable to create group. Check permissions and try again.');
+      } finally {
+        setGroupActionLoading(false);
+      }
   };
 
   const joinGroup = async () => {
       if (!user || !joinGroupId.trim()) return;
-      const groupRef = doc(db, 'artifacts', appId, 'groups', joinGroupId.trim());
-      const snap = await getDoc(groupRef);
-      if (!snap.exists()) { alert('Group not found.'); return; }
-      const createdAt = new Date().toISOString();
-      await setDoc(doc(db, 'artifacts', appId, 'groups', joinGroupId.trim(), 'members', user.uid), { role: 'member', joinedAt: createdAt });
-      const groupData = snap.data() as any;
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'groups', joinGroupId.trim()), { name: groupData.name || 'Group', ownerUid: groupData.ownerUid || '', createdAt: groupData.createdAt || createdAt, role: 'member' });
-      setJoinGroupId('');
-      setCurrentGroupId(joinGroupId.trim());
+      setGroupActionError(null);
+      setGroupActionLoading(true);
+      try {
+        const trimmed = joinGroupId.trim();
+        const groupRef = doc(db, 'artifacts', appId, 'groups', trimmed);
+        const snap = await getDoc(groupRef);
+        if (!snap.exists()) { setGroupActionError('Group not found.'); return; }
+        const createdAt = new Date().toISOString();
+        await setDoc(doc(db, 'artifacts', appId, 'groups', trimmed, 'members', user.uid), { role: 'member', joinedAt: createdAt });
+        const groupData = snap.data() as any;
+        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'groups', trimmed), { name: groupData.name || 'Group', ownerUid: groupData.ownerUid || '', createdAt: groupData.createdAt || createdAt, role: 'member' });
+        setJoinGroupId('');
+        setCurrentGroupId(trimmed);
+      } catch (e: any) {
+        console.error("Join group error", e);
+        setGroupActionError(e?.message || 'Unable to join group. Check the ID and try again.');
+      } finally {
+        setGroupActionLoading(false);
+      }
   };
 
   const addScholarApp = () => {
@@ -1958,6 +1980,14 @@ export default function ScholarsCompass() {
 
       <main className="max-w-6xl mx-auto px-4 py-8">
 
+        {isGroupMode && (
+          <div className="mb-4 p-3 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-800 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide">Group mode</span>
+            <span className="text-sm font-semibold">{activeGroup?.name}</span>
+            <span className="text-[11px] text-indigo-700/80">Shared data wiring in progress — currently showing personal data until group collections are connected.</span>
+          </div>
+        )}
+
         {/* --- VIEW: CALENDAR --- */}
         {view === 'calendar' && (
           <div className="animate-fade-in space-y-6">
@@ -2553,7 +2583,7 @@ export default function ScholarsCompass() {
                        placeholder="e.g., Quantum Lab A"
                        className="flex-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
                      />
-                     <button onClick={createGroup} className="px-3 py-2 text-xs font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50" disabled={!newGroupName.trim()}>Create</button>
+                     <button onClick={createGroup} className="px-3 py-2 text-xs font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50" disabled={!newGroupName.trim() || groupActionLoading}>{groupActionLoading ? '...' : 'Create'}</button>
                    </div>
                  </div>
                  <div className="space-y-2">
@@ -2565,10 +2595,11 @@ export default function ScholarsCompass() {
                        placeholder="Enter group ID"
                        className="flex-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
                      />
-                     <button onClick={joinGroup} className="px-3 py-2 text-xs font-bold bg-slate-800 text-white rounded hover:bg-slate-900 disabled:opacity-50" disabled={!joinGroupId.trim()}>Join</button>
+                     <button onClick={joinGroup} className="px-3 py-2 text-xs font-bold bg-slate-800 text-white rounded hover:bg-slate-900 disabled:opacity-50" disabled={!joinGroupId.trim() || groupActionLoading}>{groupActionLoading ? '...' : 'Join'}</button>
                    </div>
                  </div>
                </div>
+               {groupActionError && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded p-2 mt-2">{groupActionError}</div>}
                <div className="mt-4">
                  <p className="text-[11px] uppercase font-bold text-slate-500 mb-2">Your groups</p>
                  {groups.length === 0 && <p className="text-xs text-slate-400 italic">No groups yet. Create or join one.</p>}
