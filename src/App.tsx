@@ -144,6 +144,7 @@ interface UserConfig {
   habits: HabitDef[];
   streakFreezes: number;
   scholarApps?: ScholarApp[];
+  entertainmentApps?: ScholarApp[];
 }
 
 interface ScholarApp {
@@ -155,7 +156,7 @@ interface ScholarApp {
 }
 
 // --- Constants & Defaults ---
-const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange'];
+const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange', 'red', 'teal', 'slate'];
 const TRACK_NOTICE_KEY = 'track_notice_ack';
 const TRACK_NOTICE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -181,10 +182,24 @@ const defaultScholarApps: ScholarApp[] = [
   { id: 'app_researchgate', name: 'ResearchGate', url: 'https://www.researchgate.net/', accent: 'teal', emoji: '🌐' },
 ];
 
+const defaultEntertainmentApps: ScholarApp[] = [
+  { id: 'ent_netflix', name: 'Netflix', url: 'https://www.netflix.com/', accent: 'rose', emoji: '🎬' },
+  { id: 'ent_prime', name: 'Amazon Prime Video', url: 'https://www.primevideo.com/', accent: 'blue', emoji: '🎞️' },
+  { id: 'ent_hotstar', name: 'Disney+ Hotstar', url: 'https://www.hotstar.com/', accent: 'amber', emoji: '🍿' },
+  { id: 'ent_zomato', name: 'Zomato', url: 'https://www.zomato.com/', accent: 'red', emoji: '🍔' },
+  { id: 'ent_swiggy', name: 'Swiggy', url: 'https://www.swiggy.com/', accent: 'orange', emoji: '🥘' },
+];
+
 const presetScholarApps: ScholarApp[] = [
   { id: 'preset_github', name: 'GitHub', url: 'https://github.com/', accent: 'slate', emoji: '🐙' },
   { id: 'preset_linkedin', name: 'LinkedIn', url: 'https://www.linkedin.com/', accent: 'blue', emoji: '💼' },
   { id: 'preset_orcid', name: 'ORCID', url: 'https://orcid.org/', accent: 'emerald', emoji: '🆔' },
+];
+
+const presetEntertainmentApps: ScholarApp[] = [
+  { id: 'preset_youtube', name: 'YouTube', url: 'https://www.youtube.com/', accent: 'red', emoji: '▶️' },
+  { id: 'preset_spotify', name: 'Spotify', url: 'https://open.spotify.com/', accent: 'emerald', emoji: '🎧' },
+  { id: 'preset_apple_tv', name: 'Apple TV+', url: 'https://tv.apple.com/', accent: 'slate', emoji: '📺' },
 ];
 
 const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -293,13 +308,13 @@ export default function ScholarsCompass() {
   const [showGuidedTour, setShowGuidedTour] = useState(false);
   
   // State
-  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2, scholarApps: defaultScholarApps });
+  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps });
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [todayLog, setTodayLog] = useState<DailyLog | null>(null);
   
   // UI State
   const [dataLoading, setDataLoading] = useState(true);
-  const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'library' | 'night' | 'analytics' | 'settings'>('dashboard');
+  const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'library' | 'night' | 'analytics' | 'settings' | 'entertainment'>('dashboard');
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
   const [showTrackNotice, setShowTrackNotice] = useState(false);
@@ -331,6 +346,13 @@ export default function ScholarsCompass() {
     emoji: '⭐'
   });
   const [showCustomAppForm, setShowCustomAppForm] = useState(false);
+  const [newEntertainmentApp, setNewEntertainmentApp] = useState<{ name: string; url: string; accent: string; emoji: string }>({
+    name: '',
+    url: '',
+    accent: 'rose',
+    emoji: '🎉'
+  });
+  const [showCustomEntertainmentForm, setShowCustomEntertainmentForm] = useState(false);
 
   // --- Clock ---
   useEffect(() => {
@@ -439,7 +461,8 @@ export default function ScholarsCompass() {
           antiGoals: data.antiGoals || defaultAntiGoals,
           habits: normalizedHabits,
           streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2,
-          scholarApps: data.scholarApps && Array.isArray(data.scholarApps) && data.scholarApps.length > 0 ? data.scholarApps : defaultScholarApps
+          scholarApps: data.scholarApps && Array.isArray(data.scholarApps) && data.scholarApps.length > 0 ? data.scholarApps : defaultScholarApps,
+          entertainmentApps: data.entertainmentApps && Array.isArray(data.entertainmentApps) && data.entertainmentApps.length > 0 ? data.entertainmentApps : defaultEntertainmentApps
         };
         setConfig(normalizedConfig);
         if (habitsUpdated) {
@@ -448,7 +471,7 @@ export default function ScholarsCompass() {
       } else {
         const todayStr = getTodayStr();
         const seededHabits = defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
-        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2, scholarApps: defaultScholarApps };
+        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps };
         setConfig(initialConfig);
         setDoc(configRef, initialConfig).catch(e => console.error("Config Init Error", e));
       }
@@ -927,6 +950,36 @@ export default function ScholarsCompass() {
       if (existing) return;
       const updated = [...(config.scholarApps || defaultScholarApps), { ...preset, id: `app_${Date.now()}` }];
       saveConfig({ ...config, scholarApps: updated });
+  };
+
+  const addEntertainmentApp = () => {
+      const name = newEntertainmentApp.name.trim();
+      const url = newEntertainmentApp.url.trim();
+      if (!name || !url) return;
+      const app: ScholarApp = {
+        id: `ent_${Date.now()}`,
+        name,
+        url,
+        accent: newEntertainmentApp.accent || 'rose',
+        emoji: newEntertainmentApp.emoji || '🎉'
+      };
+      const updated = [...(config.entertainmentApps || defaultEntertainmentApps), app];
+      saveConfig({ ...config, entertainmentApps: updated });
+      setNewEntertainmentApp({ name: '', url: '', accent: 'rose', emoji: '🎉' });
+      setShowCustomEntertainmentForm(false);
+  };
+
+  const deleteEntertainmentApp = (id: string) => {
+      saveConfig({ ...config, entertainmentApps: (config.entertainmentApps || []).filter(app => app.id !== id) });
+  };
+
+  const addPresetEntertainmentApp = (presetId: string) => {
+      const preset = presetEntertainmentApps.find(p => p.id === presetId);
+      if (!preset) return;
+      const existing = (config.entertainmentApps || defaultEntertainmentApps).some(app => app.url === preset.url || app.name.toLowerCase() === preset.name.toLowerCase());
+      if (existing) return;
+      const updated = [...(config.entertainmentApps || defaultEntertainmentApps), { ...preset, id: `ent_${Date.now()}` }];
+      saveConfig({ ...config, entertainmentApps: updated });
   };
 
   const toggleHabit = (hId: string) => {
@@ -1648,7 +1701,7 @@ export default function ScholarsCompass() {
             </div>
             <h1 className="font-serif font-bold text-lg tracking-tight text-slate-900">Scholar's Compass</h1>
             
-            <div className="hidden md:flex items-center gap-3 ml-4 pl-4 border-l border-slate-200">
+              <div className="hidden md:flex items-center gap-3 ml-4 pl-4 border-l border-slate-200">
                <div className="flex items-center gap-1 text-orange-500" title="Current Streak">
                   <Flame size={16} className={currentStreak > 0 ? 'fill-orange-500 animate-pulse' : 'text-slate-300'} />
                   <span className={`font-mono font-bold ${currentStreak > 0 ? 'text-orange-600' : 'text-slate-400'}`}>{currentStreak}</span>
@@ -1674,6 +1727,7 @@ export default function ScholarsCompass() {
                 { id: 'dashboard', icon: CalendarDays, label: 'Track' },
                 { id: 'calendar', icon: CalendarIcon, label: 'Cal' },
                 { id: 'library', icon: FolderOpen, label: 'Lib' },
+                { id: 'entertainment', icon: PlayCircle, label: 'Fun' },
                 { id: 'analytics', icon: BarChart3, label: 'Data' },
                 { id: 'night', icon: Moon, label: 'Reflect' },
                 { id: 'settings', icon: Settings, label: 'Setup' },
@@ -2151,6 +2205,137 @@ export default function ScholarsCompass() {
                </div>
              )}
            </div>
+        )}
+
+        {/* --- VIEW: ENTERTAINMENT --- */}
+        {view === 'entertainment' && (
+          <div className="animate-fade-in space-y-6">
+            <div className="bg-gradient-to-r from-rose-50 to-amber-50 p-6 rounded-xl border border-rose-100">
+              <h2 className="font-serif text-2xl font-bold text-rose-900 mb-2">Entertainment & Breaks</h2>
+              <p className="text-rose-800/80">Quick links to your favorite shows and bites. Balance study with mindful breaks.</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase font-bold text-slate-400">Entertainment Apps</p>
+                  <h3 className="font-serif text-lg font-bold text-slate-900">Stream & Snack</h3>
+                </div>
+                <div className="text-[11px] text-slate-500">Preloaded with Netflix, Prime, Hotstar, Zomato, Swiggy.</div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1">
+                  <label className="text-[11px] text-slate-500 uppercase font-bold">Quick add</label>
+                  <select
+                    className="w-full mt-1 p-2 rounded border border-slate-200 text-sm bg-white focus:border-rose-500 outline-none"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) return;
+                      if (val === 'custom') {
+                        setShowCustomEntertainmentForm(true);
+                        setTimeout(() => {
+                          const nameInput = document.getElementById('entertainment-app-name');
+                          nameInput?.focus();
+                        }, 50);
+                      } else {
+                        addPresetEntertainmentApp(val);
+                      }
+                      e.target.value = '';
+                    }}
+                  >
+                    <option value="">Choose an app</option>
+                    {presetEntertainmentApps.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                    <option value="custom">Add more (custom website)</option>
+                  </select>
+                </div>
+                <div className="text-[12px] text-slate-500 flex items-end">Pick a favorite or add your own break spot.</div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {(config.entertainmentApps || defaultEntertainmentApps).map(app => (
+                  <div key={app.id} className={`p-3 rounded-xl border border-${app.accent}-100 bg-${app.accent}-50/60 flex items-center gap-3`}>
+                    <div className={`w-10 h-10 rounded-full bg-${app.accent}-100 flex items-center justify-center text-xl`}>
+                      {app.emoji}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-slate-800 truncate">{app.name}</div>
+                      <a href={app.url} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 truncate hover:underline">{app.url}</a>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <a href={app.url} target="_blank" rel="noreferrer" className={`p-2 rounded-lg text-${app.accent}-700 hover:bg-white/70`} title={`Open ${app.name}`}>
+                        <ExternalLink size={16} />
+                      </a>
+                      <button onClick={() => deleteEntertainmentApp(app.id)} className="p-2 text-slate-400 hover:text-rose-600" title="Remove">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {showCustomEntertainmentForm && (
+                <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3 items-end border-t border-slate-100 pt-3">
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] text-slate-500 uppercase font-bold">App name</label>
+                    <input 
+                      value={newEntertainmentApp.name}
+                      onChange={(e) => setNewEntertainmentApp({ ...newEntertainmentApp, name: e.target.value })}
+                      placeholder="YouTube"
+                      id="entertainment-app-name"
+                      className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-rose-500 outline-none"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-[11px] text-slate-500 uppercase font-bold">URL</label>
+                    <input 
+                      value={newEntertainmentApp.url}
+                      onChange={(e) => setNewEntertainmentApp({ ...newEntertainmentApp, url: e.target.value })}
+                      placeholder="https://www.youtube.com/"
+                      className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-rose-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-500 uppercase font-bold">Accent</label>
+                    <select 
+                      value={newEntertainmentApp.accent}
+                      onChange={(e) => setNewEntertainmentApp({ ...newEntertainmentApp, accent: e.target.value })}
+                      className="w-full mt-1 p-2 rounded border border-slate-200 text-sm bg-white focus:border-rose-500 outline-none"
+                    >
+                      {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-slate-500 uppercase font-bold">Emoji</label>
+                    <input 
+                      value={newEntertainmentApp.emoji}
+                      onChange={(e) => setNewEntertainmentApp({ ...newEntertainmentApp, emoji: e.target.value })}
+                      maxLength={2}
+                      className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-rose-500 outline-none"
+                    />
+                  </div>
+                  <div className="md:col-span-4 flex justify-end gap-2">
+                    <button 
+                      onClick={() => { setShowCustomEntertainmentForm(false); setNewEntertainmentApp({ name: '', url: '', accent: 'rose', emoji: '🎉' }); }}
+                      className="px-4 py-2 text-sm font-bold text-slate-500 rounded-lg border border-slate-200 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={addEntertainmentApp}
+                      className="px-4 py-2 bg-rose-600 text-white text-sm font-bold rounded-lg hover:bg-rose-700 disabled:opacity-50"
+                      disabled={!newEntertainmentApp.name.trim() || !newEntertainmentApp.url.trim()}
+                    >
+                      Add app
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
         {/* --- VIEW: SETTINGS --- */}
