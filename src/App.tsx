@@ -571,11 +571,24 @@ export default function ScholarsCompass() {
       alert("No log found for yesterday to copy.");
       return;
     }
+
+    const resetCategories: Record<string, CategoryLog> = {};
+    Object.entries(yLog.categories || {}).forEach(([catId, catLog]) => {
+      const goals = [...(catLog.goals || [])];
+      resetCategories[catId] = {
+        goals,
+        goalStatus: goals.map(() => 'pending'),
+        hours: 0,
+        notes: '',
+        attachments: []
+      };
+    });
+
     const newLog: DailyLog = {
       ...todayLog,
-      categories: JSON.parse(JSON.stringify(yLog.categories || {})),
-      antiGoals: { ...yLog.antiGoals },
-      habits: { ...yLog.habits },
+      categories: resetCategories,
+      antiGoals: {},
+      habits: {},
       events: [...(todayLog.events || [])], // keep today's events intact
       reflection: '',
       rating: 0
