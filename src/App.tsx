@@ -29,7 +29,6 @@ import {
   ChevronRight,
   Calendar as CalendarIcon,
   AlertCircle,
-  Lock,
   Plus,
   Trash2,
   Settings,
@@ -2919,11 +2918,7 @@ export default function ScholarsCompass() {
 
               <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                 <div className="flex items-center gap-2 text-xs text-slate-500"><div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>Auto-sync active</div>
-                {istHour === 23 ? (
-                  <button onClick={() => alert("Progress finalized.")} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors shadow-md"><Save size={18} /><span>Finalize</span></button>
-                ) : (
-                  <button disabled className="flex items-center gap-2 bg-slate-100 text-slate-400 px-6 py-3 rounded-lg cursor-not-allowed border border-slate-200"><Lock size={18} /><span>Locked until 11 PM IST</span></button>
-                )}
+                <button onClick={() => alert("Progress finalized for today.")} className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition-colors shadow-md"><Save size={18} /><span>Finalize</span></button>
               </div>
             </div>
           </div>
