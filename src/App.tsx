@@ -1296,6 +1296,16 @@ export default function ScholarsCompass() {
     return items;
   }, [logs, config]);
 
+  const groupedLibraryItems = useMemo(() => {
+    const groups = new Map<string, Array<{ date: string; catTitle: string; color: string; link: string; name: string; type: string }>>();
+    libraryItems.forEach(item => {
+      const monthKey = item.date.slice(0, 7); // YYYY-MM
+      if (!groups.has(monthKey)) groups.set(monthKey, []);
+      groups.get(monthKey)!.push(item);
+    });
+    return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [libraryItems]);
+
   // Calendar Render
   const renderCalendar = () => {
     const daysInMonth = getDaysInMonth(calDate.getFullYear(), calDate.getMonth());
@@ -2179,32 +2189,44 @@ export default function ScholarsCompass() {
                    <FolderOpen size={48} className="mx-auto mb-4 opacity-50" />
                    <p>No resources logged yet. Add links in the "Track" tab.</p>
                  </div>
-             ) : (
-               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {libraryItems.map((item, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
-                       <div className="flex items-center justify-between mb-3">
-                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-${item.color}-50 text-${item.color}-600`}>
-                            {item.catTitle}
-                          </span>
-                          <span className="text-[10px] font-mono text-slate-400">{item.date}</span>
+               ) : (
+               <div className="space-y-6">
+                 {groupedLibraryItems.map(([month, items]) => {
+                   const monthLabel = new Date(`${month}-01`).toLocaleString('default', { month: 'long', year: 'numeric' });
+                   return (
+                     <div key={month} className="space-y-3">
+                       <div className="flex items-center gap-2 text-sm font-bold text-slate-600">
+                         <CalendarIcon size={14} className="text-indigo-500" /> {monthLabel}
                        </div>
-                       <a href={item.link} target="_blank" rel="noreferrer" className="flex items-start gap-3 group-hover:bg-slate-50 p-2 rounded transition-colors">
-                          <div className="bg-slate-100 p-2 rounded text-slate-500">
-                             {item.type === 'file' ? <HardDrive size={16} /> : (item.link.includes('firebasestorage') ? <UploadCloud size={16} /> : <Link size={16} />)}
-                          </div>
-                          <div className="flex-1 overflow-hidden">
-                             <div className="text-xs font-bold text-slate-700 truncate mb-1" title={item.name}>
-                                {item.name}
+                       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                         {items.map((item, idx) => (
+                           <div key={`${month}-${idx}`} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow group">
+                             <div className="flex items-center justify-between mb-3">
+                               <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded bg-${item.color}-50 text-${item.color}-600`}>
+                                 {item.catTitle}
+                               </span>
+                               <span className="text-[10px] font-mono text-slate-400">{item.date}</span>
                              </div>
-                             <div className="text-[10px] text-blue-500 truncate">{item.link}</div>
-                          </div>
-                       </a>
-                    </div>
-                  ))}
+                             <a href={item.link} target="_blank" rel="noreferrer" className="flex items-start gap-3 group-hover:bg-slate-50 p-2 rounded transition-colors">
+                               <div className="bg-slate-100 p-2 rounded text-slate-500">
+                                 {item.type === 'file' ? <HardDrive size={16} /> : (item.link.includes('firebasestorage') ? <UploadCloud size={16} /> : <Link size={16} />)}
+                               </div>
+                               <div className="flex-1 overflow-hidden">
+                                 <div className="text-xs font-bold text-slate-700 truncate mb-1" title={item.name}>
+                                   {item.name}
+                                 </div>
+                                 <div className="text-[10px] text-blue-500 truncate">{item.link}</div>
+                               </div>
+                             </a>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                 })}
                </div>
-             )}
-           </div>
+               )}
+             </div>
         )}
 
         {/* --- VIEW: ENTERTAINMENT --- */}
