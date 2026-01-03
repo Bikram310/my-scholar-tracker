@@ -259,7 +259,7 @@ const LoginScreen = ({ onLogin }: { onLogin: () => void }) => (
       </div>
       <h1 className="font-serif text-3xl font-bold text-slate-900 mb-2">Scholar's Compass</h1>
       <p className="text-slate-500 mb-8">
-        Precision tracking for the serious academic. Log your research, analyze your metrics, and master your timeline.
+        Precision tracking for the serious academic. Log your research, analyze your metrics, and master your timeline. Your data stays with you. Made by Bikram, for you.
       </p>
       
       <button 
