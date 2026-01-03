@@ -2477,6 +2477,24 @@ export default function ScholarsCompass() {
                 >
                   <History size={14} /> Same as yesterday
                 </button>
+                <div className="flex items-center gap-2 ml-auto">
+                  <a 
+                    href="https://web.whatsapp.com" 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="flex items-center gap-2 text-xs font-bold bg-green-50 text-green-700 px-3 py-2 rounded border border-green-200 hover:bg-green-100 shadow-sm"
+                  >
+                    <MessageCircle size={14} /> WhatsApp
+                  </a>
+                  <a 
+                    href="https://mail.google.com" 
+                    target="_blank" 
+                    rel="noreferrer" 
+                    className="flex items-center gap-2 text-xs font-bold bg-red-50 text-red-700 px-3 py-2 rounded border border-red-200 hover:bg-red-100 shadow-sm"
+                  >
+                    <Mail size={14} /> Gmail
+                  </a>
+                </div>
               </div>
             </div>
 
