@@ -147,6 +147,7 @@ interface UserConfig {
 
 // --- Constants & Defaults ---
 const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange'];
+const TRACK_NOTICE_KEY = 'track_notice_ack';
 
 const defaultCategories: CategoryDef[] = [
   { id: 'research', title: 'Research Progress', color: 'indigo', iconKey: 'microscope' },
@@ -278,6 +279,7 @@ export default function ScholarsCompass() {
   const [view, setView] = useState<'morning' | 'dashboard' | 'calendar' | 'library' | 'night' | 'analytics' | 'settings'>('dashboard');
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
+  const [showTrackNotice, setShowTrackNotice] = useState(false);
   
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
@@ -343,8 +345,14 @@ export default function ScholarsCompass() {
       if (!hasSeenTour) {
         setTimeout(() => setShowGuidedTour(true), 400); // slight delay for page render
       }
+      const hasSeenTrackNotice = localStorage.getItem(TRACK_NOTICE_KEY);
+      if (!hasSeenTrackNotice && view === 'dashboard') {
+        setShowTrackNotice(true);
+      } else if (view !== 'dashboard') {
+        setShowTrackNotice(false);
+      }
     }
-  }, [user]);
+  }, [user, view]);
 
   const handleLogin = async () => {
     try {
@@ -844,6 +852,11 @@ export default function ScholarsCompass() {
   const addAntiGoal = () => {
       const id = `ag_${Date.now()}`;
       saveConfig({ ...config, antiGoals: [...config.antiGoals, { id, title: 'New Anti-Goal' }]});
+  };
+
+  const acknowledgeTrackNotice = () => {
+      setShowTrackNotice(false);
+      localStorage.setItem(TRACK_NOTICE_KEY, 'true');
   };
 
   const deleteAntiGoal = (id: string) => {
@@ -1482,6 +1495,42 @@ export default function ScholarsCompass() {
                   className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
                 >
                   Configure My Plans
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Track Upload Security Notice */}
+      {showTrackNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-indigo-100">
+            <div className="bg-gradient-to-r from-indigo-50 via-white to-emerald-50 p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 rounded-xl bg-indigo-100 text-indigo-700 shadow-inner">
+                  <ShieldCheck size={22} />
+                </div>
+                <div>
+                  <p className="text-xs uppercase font-bold text-indigo-500 tracking-[0.08em]">Upload Safety</p>
+                  <h3 className="text-xl font-serif font-bold text-slate-900">Refresh Google Drive access</h3>
+                </div>
+              </div>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                For your security, the Google Drive session we use to store your files expires every hour. If you have been logged in for more than 60 minutes, tap your profile photo to re-authenticate before uploading. This keeps your data private and under your control.
+              </p>
+              <div className="mt-4 flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowTrackNotice(false)}
+                  className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
+                >
+                  Remind me later
+                </button>
+                <button
+                  onClick={acknowledgeTrackNotice}
+                  className="px-4 py-2 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md shadow-indigo-200 transition-transform hover:translate-y-[-1px]"
+                >
+                  Got it, stay safe
                 </button>
               </div>
             </div>
