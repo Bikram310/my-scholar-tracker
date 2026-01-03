@@ -143,6 +143,15 @@ interface UserConfig {
   antiGoals: AntiGoalDef[];
   habits: HabitDef[];
   streakFreezes: number;
+  scholarApps?: ScholarApp[];
+}
+
+interface ScholarApp {
+  id: string;
+  name: string;
+  url: string;
+  accent: string;
+  emoji: string;
 }
 
 // --- Constants & Defaults ---
@@ -162,6 +171,13 @@ const defaultAntiGoals: AntiGoalDef[] = [
 const defaultHabits: HabitDef[] = [
   { id: 'h_walk', title: 'Morning Walk' },
   { id: 'h_read', title: 'Read Non-Academic' }
+];
+
+const defaultScholarApps: ScholarApp[] = [
+  { id: 'app_arxiv', name: 'arXiv', url: 'https://arxiv.org/', accent: 'indigo', emoji: '📄' },
+  { id: 'app_scholar', name: 'Google Scholar', url: 'https://scholar.google.com/', accent: 'blue', emoji: '🎓' },
+  { id: 'app_overleaf', name: 'Overleaf', url: 'https://www.overleaf.com/', accent: 'emerald', emoji: '🧪' },
+  { id: 'app_researchgate', name: 'ResearchGate', url: 'https://www.researchgate.net/', accent: 'teal', emoji: '🌐' },
 ];
 
 const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -270,7 +286,7 @@ export default function ScholarsCompass() {
   const [showGuidedTour, setShowGuidedTour] = useState(false);
   
   // State
-  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2 });
+  const [config, setConfig] = useState<UserConfig>({ categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2, scholarApps: defaultScholarApps });
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [todayLog, setTodayLog] = useState<DailyLog | null>(null);
   
@@ -301,6 +317,12 @@ export default function ScholarsCompass() {
   // Temp state
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
   const [newLinkInputs, setNewLinkInputs] = useState<Record<string, string>>({});
+  const [newScholarApp, setNewScholarApp] = useState<{ name: string; url: string; accent: string; emoji: string }>({
+    name: '',
+    url: '',
+    accent: 'indigo',
+    emoji: '⭐'
+  });
 
   // --- Clock ---
   useEffect(() => {
@@ -407,7 +429,8 @@ export default function ScholarsCompass() {
           categories: data.categories || defaultCategories,
           antiGoals: data.antiGoals || defaultAntiGoals,
           habits: normalizedHabits,
-          streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2
+          streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2,
+          scholarApps: data.scholarApps && Array.isArray(data.scholarApps) && data.scholarApps.length > 0 ? data.scholarApps : defaultScholarApps
         };
         setConfig(normalizedConfig);
         if (habitsUpdated) {
@@ -416,7 +439,7 @@ export default function ScholarsCompass() {
       } else {
         const todayStr = getTodayStr();
         const seededHabits = defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
-        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2 };
+        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2, scholarApps: defaultScholarApps };
         setConfig(initialConfig);
         setDoc(configRef, initialConfig).catch(e => console.error("Config Init Error", e));
       }
@@ -865,6 +888,26 @@ export default function ScholarsCompass() {
   
   const updateAntiGoalTitle = (id: string, title: string) => {
       saveConfig({ ...config, antiGoals: config.antiGoals.map(ag => ag.id === id ? {...ag, title} : ag)});
+  };
+
+  const addScholarApp = () => {
+      const name = newScholarApp.name.trim();
+      const url = newScholarApp.url.trim();
+      if (!name || !url) return;
+      const app: ScholarApp = {
+        id: `app_${Date.now()}`,
+        name,
+        url,
+        accent: newScholarApp.accent || 'indigo',
+        emoji: newScholarApp.emoji || '⭐'
+      };
+      const updated = [...(config.scholarApps || defaultScholarApps), app];
+      saveConfig({ ...config, scholarApps: updated });
+      setNewScholarApp({ name: '', url: '', accent: 'indigo', emoji: '⭐' });
+  };
+
+  const deleteScholarApp = (id: string) => {
+      saveConfig({ ...config, scholarApps: (config.scholarApps || []).filter(app => app.id !== id) });
   };
 
   const toggleHabit = (hId: string) => {
@@ -1933,16 +1976,97 @@ export default function ScholarsCompass() {
         {/* --- VIEW: LIBRARY --- */}
         {view === 'library' && (
            <div className="animate-fade-in space-y-6">
-             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100">
-                <h2 className="font-serif text-2xl font-bold text-blue-900 mb-2">Knowledge Repository</h2>
-                <p className="text-blue-800/80">Centralized archive of all files, proofs, and links.</p>
-             </div>
-
-             {libraryItems.length === 0 ? (
-               <div className="text-center py-20 text-slate-400 bg-white rounded-xl border border-slate-200 border-dashed">
-                 <FolderOpen size={48} className="mx-auto mb-4 opacity-50" />
-                 <p>No resources logged yet. Add links in the "Track" tab.</p>
+               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-100">
+                 <h2 className="font-serif text-2xl font-bold text-blue-900 mb-2">Knowledge Repository</h2>
+                 <p className="text-blue-800/80">Centralized archive of all files, proofs, and links.</p>
                </div>
+
+               {/* Scholar Quick Launch */}
+               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                 <div className="flex items-center justify-between">
+                   <div>
+                     <p className="text-xs uppercase font-bold text-slate-400">Scholar Apps</p>
+                     <h3 className="font-serif text-lg font-bold text-slate-900">Your go-to tools</h3>
+                   </div>
+                   <div className="text-[11px] text-slate-500">Add, remove, or open instantly.</div>
+                 </div>
+                 <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                   {(config.scholarApps || defaultScholarApps).map(app => (
+                     <div key={app.id} className={`p-3 rounded-xl border border-${app.accent}-100 bg-${app.accent}-50/60 flex items-center gap-3`}>
+                       <div className={`w-10 h-10 rounded-full bg-${app.accent}-100 flex items-center justify-center text-xl`}>
+                         {app.emoji}
+                       </div>
+                       <div className="flex-1 min-w-0">
+                         <div className="text-sm font-bold text-slate-800 truncate">{app.name}</div>
+                         <a href={app.url} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 truncate hover:underline">{app.url}</a>
+                       </div>
+                       <div className="flex items-center gap-1">
+                         <a href={app.url} target="_blank" rel="noreferrer" className={`p-2 rounded-lg text-${app.accent}-700 hover:bg-white/70`} title={`Open ${app.name}`}>
+                           <ExternalLink size={16} />
+                         </a>
+                         <button onClick={() => deleteScholarApp(app.id)} className="p-2 text-slate-400 hover:text-rose-600" title="Remove">
+                           <Trash2 size={14} />
+                         </button>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+                 <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3 items-end border-t border-slate-100 pt-3">
+                   <div className="md:col-span-2">
+                     <label className="text-[11px] text-slate-500 uppercase font-bold">App name</label>
+                     <input 
+                       value={newScholarApp.name}
+                       onChange={(e) => setNewScholarApp({ ...newScholarApp, name: e.target.value })}
+                       placeholder="Zotero"
+                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
+                     />
+                   </div>
+                   <div className="md:col-span-2">
+                     <label className="text-[11px] text-slate-500 uppercase font-bold">URL</label>
+                     <input 
+                       value={newScholarApp.url}
+                       onChange={(e) => setNewScholarApp({ ...newScholarApp, url: e.target.value })}
+                       placeholder="https://www.zotero.org/"
+                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
+                     />
+                   </div>
+                   <div>
+                     <label className="text-[11px] text-slate-500 uppercase font-bold">Accent</label>
+                     <select 
+                       value={newScholarApp.accent}
+                       onChange={(e) => setNewScholarApp({ ...newScholarApp, accent: e.target.value })}
+                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm bg-white focus:border-indigo-500 outline-none"
+                     >
+                       {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                       <option value="teal">teal</option>
+                     </select>
+                   </div>
+                   <div>
+                     <label className="text-[11px] text-slate-500 uppercase font-bold">Emoji</label>
+                     <input 
+                       value={newScholarApp.emoji}
+                       onChange={(e) => setNewScholarApp({ ...newScholarApp, emoji: e.target.value })}
+                       maxLength={2}
+                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
+                     />
+                   </div>
+                   <div className="md:col-span-4 flex justify-end">
+                     <button 
+                       onClick={addScholarApp}
+                       className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                       disabled={!newScholarApp.name.trim() || !newScholarApp.url.trim()}
+                     >
+                       Add app
+                     </button>
+                   </div>
+                 </div>
+               </div>
+
+               {libraryItems.length === 0 ? (
+                 <div className="text-center py-20 text-slate-400 bg-white rounded-xl border border-slate-200 border-dashed">
+                   <FolderOpen size={48} className="mx-auto mb-4 opacity-50" />
+                   <p>No resources logged yet. Add links in the "Track" tab.</p>
+                 </div>
              ) : (
                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {libraryItems.map((item, idx) => (
