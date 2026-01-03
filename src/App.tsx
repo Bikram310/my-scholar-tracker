@@ -388,6 +388,7 @@ export default function ScholarsCompass() {
   const [newGroupName, setNewGroupName] = useState('');
   const [joinGroupId, setJoinGroupId] = useState('');
   const activeGroup = groups.find(g => g.id === currentGroupId);
+  const isGroupMode = !!activeGroup;
 
   // --- Clock ---
   useEffect(() => {
@@ -1957,6 +1958,14 @@ export default function ScholarsCompass() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
+
+        {isGroupMode && (
+          <div className="mb-4 p-3 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-800 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide">Group mode</span>
+            <span className="text-sm font-semibold">{activeGroup?.name}</span>
+            <span className="text-[11px] text-indigo-700/80">Shared data wiring in progress — currently showing personal data until group collections are connected.</span>
+          </div>
+        )}
 
         {/* --- VIEW: CALENDAR --- */}
         {view === 'calendar' && (
