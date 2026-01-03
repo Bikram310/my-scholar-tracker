@@ -181,6 +181,12 @@ const defaultScholarApps: ScholarApp[] = [
   { id: 'app_researchgate', name: 'ResearchGate', url: 'https://www.researchgate.net/', accent: 'teal', emoji: '🌐' },
 ];
 
+const presetScholarApps: ScholarApp[] = [
+  { id: 'preset_github', name: 'GitHub', url: 'https://github.com/', accent: 'slate', emoji: '🐙' },
+  { id: 'preset_linkedin', name: 'LinkedIn', url: 'https://www.linkedin.com/', accent: 'blue', emoji: '💼' },
+  { id: 'preset_orcid', name: 'ORCID', url: 'https://orcid.org/', accent: 'emerald', emoji: '🆔' },
+];
+
 const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 const getISTDateStr = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()); // YYYY-MM-DD
 const getTodayStr = () => getISTDateStr();
@@ -910,6 +916,15 @@ export default function ScholarsCompass() {
 
   const deleteScholarApp = (id: string) => {
       saveConfig({ ...config, scholarApps: (config.scholarApps || []).filter(app => app.id !== id) });
+  };
+
+  const addPresetScholarApp = (presetId: string) => {
+      const preset = presetScholarApps.find(p => p.id === presetId);
+      if (!preset) return;
+      const existing = (config.scholarApps || defaultScholarApps).some(app => app.url === preset.url || app.name.toLowerCase() === preset.name.toLowerCase());
+      if (existing) return;
+      const updated = [...(config.scholarApps || defaultScholarApps), { ...preset, id: `app_${Date.now()}` }];
+      saveConfig({ ...config, scholarApps: updated });
   };
 
   const toggleHabit = (hId: string) => {
@@ -1992,6 +2007,33 @@ export default function ScholarsCompass() {
                    </div>
                    <div className="text-[11px] text-slate-500">Add, remove, or open instantly.</div>
                  </div>
+                 <div className="flex flex-col sm:flex-row gap-3">
+                   <div className="flex-1">
+                     <label className="text-[11px] text-slate-500 uppercase font-bold">Quick add</label>
+                     <select
+                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm bg-white focus:border-indigo-500 outline-none"
+                       defaultValue=""
+                       onChange={(e) => {
+                         const val = e.target.value;
+                         if (!val) return;
+                         if (val === 'custom') {
+                           const nameInput = document.getElementById('scholar-app-name');
+                           nameInput?.focus();
+                         } else {
+                           addPresetScholarApp(val);
+                         }
+                         e.target.value = '';
+                       }}
+                     >
+                       <option value="">Choose an app</option>
+                       {presetScholarApps.map(p => (
+                         <option key={p.id} value={p.id}>{p.name}</option>
+                       ))}
+                       <option value="custom">Add more (custom website)</option>
+                     </select>
+                   </div>
+                   <div className="text-[12px] text-slate-500 flex items-end">Pick from popular apps or choose "Add more" to enter a custom site.</div>
+                 </div>
                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                    {(config.scholarApps || defaultScholarApps).map(app => (
                      <div key={app.id} className={`p-3 rounded-xl border border-${app.accent}-100 bg-${app.accent}-50/60 flex items-center gap-3`}>
@@ -2020,6 +2062,7 @@ export default function ScholarsCompass() {
                        value={newScholarApp.name}
                        onChange={(e) => setNewScholarApp({ ...newScholarApp, name: e.target.value })}
                        placeholder="Zotero"
+                       id="scholar-app-name"
                        className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
                      />
                    </div>
