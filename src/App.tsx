@@ -157,6 +157,7 @@ interface ScholarApp {
 // --- Constants & Defaults ---
 const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange'];
 const TRACK_NOTICE_KEY = 'track_notice_ack';
+const TRACK_NOTICE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 const defaultCategories: CategoryDef[] = [
   { id: 'research', title: 'Research Progress', color: 'indigo', iconKey: 'microscope' },
@@ -367,8 +368,9 @@ export default function ScholarsCompass() {
       if (!hasSeenTour) {
         setTimeout(() => setShowGuidedTour(true), 400); // slight delay for page render
       }
-      const hasSeenTrackNotice = localStorage.getItem(TRACK_NOTICE_KEY);
-      if (!hasSeenTrackNotice && view === 'dashboard') {
+      const lastTrackAck = parseInt(localStorage.getItem(TRACK_NOTICE_KEY) || '0');
+      const isExpired = !lastTrackAck || (Date.now() - lastTrackAck > TRACK_NOTICE_TTL_MS);
+      if (view === 'dashboard' && isExpired) {
         setShowTrackNotice(true);
       } else if (view !== 'dashboard') {
         setShowTrackNotice(false);
@@ -879,7 +881,7 @@ export default function ScholarsCompass() {
 
   const acknowledgeTrackNotice = () => {
       setShowTrackNotice(false);
-      localStorage.setItem(TRACK_NOTICE_KEY, 'true');
+      localStorage.setItem(TRACK_NOTICE_KEY, Date.now().toString());
   };
 
   const deleteAntiGoal = (id: string) => {
