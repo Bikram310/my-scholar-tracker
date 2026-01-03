@@ -11,7 +11,6 @@ import {
 import { 
   getFirestore, 
   collection, 
-  addDoc,
   doc, 
   setDoc, 
   getDoc,
@@ -155,14 +154,6 @@ interface ScholarApp {
   url: string;
   accent: string;
   emoji: string;
-}
-
-interface GroupMeta {
-  id: string;
-  name: string;
-  ownerUid: string;
-  createdAt: string;
-  role?: string;
 }
 
 // --- Constants & Defaults ---
@@ -383,14 +374,6 @@ export default function ScholarsCompass() {
   const [showCustomEntertainmentForm, setShowCustomEntertainmentForm] = useState(false);
   const [goalCelebrations, setGoalCelebrations] = useState<Set<string>>(new Set());
   const [habitCelebrations, setHabitCelebrations] = useState<Set<string>>(new Set());
-  const [groups, setGroups] = useState<GroupMeta[]>([]);
-  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [joinGroupId, setJoinGroupId] = useState('');
-  const activeGroup = groups.find(g => g.id === currentGroupId);
-  const isGroupMode = !!activeGroup;
-  const [groupActionError, setGroupActionError] = useState<string | null>(null);
-  const [groupActionLoading, setGroupActionLoading] = useState(false);
 
   // --- Clock ---
   useEffect(() => {
@@ -466,88 +449,6 @@ export default function ScholarsCompass() {
     }
   }, [user, view]);
 
-  // --- Group Membership Fetch ---
-  useEffect(() => {
-    if (!user || user.isAnonymous) return;
-    const userGroupsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'groups');
-    const unsubscribe = onSnapshot(userGroupsRef, async (snap) => {
-      const list: GroupMeta[] = [];
-      for (const docSnap of snap.docs) {
-        const data = docSnap.data() as any;
-        if (data) {
-          list.push({
-            id: docSnap.id,
-            name: data.name || 'Group',
-            ownerUid: data.ownerUid || '',
-            createdAt: data.createdAt || '',
-            role: data.role || 'member'
-          });
-        }
-      }
-      setGroups(list);
-      if (list.length > 0 && !currentGroupId) setCurrentGroupId(list[0].id);
-    });
-    return () => unsubscribe();
-  }, [user, isGroupMode]);
-
-  // --- Group Data Fetch (config + logs) ---
-  useEffect(() => {
-    if (!user || user.isAnonymous || !currentGroupId) return;
-    setDataLoading(true);
-
-    const configRef = doc(db, 'artifacts', appId, 'groups', currentGroupId, 'config', 'main');
-    const logsRef = collection(db, 'artifacts', appId, 'groups', currentGroupId, 'daily_logs');
-
-    const configPromise = getDoc(configRef).then(snap => {
-      if (snap.exists()) {
-        const data = snap.data() as any;
-        setConfig({
-          categories: data.categories || defaultCategories,
-          antiGoals: data.antiGoals || defaultAntiGoals,
-          habits: data.habits || defaultHabits,
-          streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2,
-          scholarApps: data.scholarApps || defaultScholarApps,
-          entertainmentApps: data.entertainmentApps || defaultEntertainmentApps
-        });
-      } else {
-        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps };
-        setConfig(initialConfig);
-        setDoc(configRef, initialConfig).catch(() => {});
-      }
-    });
-
-    const unsubscribeLogs = onSnapshot(logsRef, (snapshot) => {
-      const fetchedLogs: DailyLog[] = [];
-      snapshot.forEach((doc) => fetchedLogs.push(doc.data() as DailyLog));
-      setLogs(fetchedLogs);
-
-      const todayStr = getTodayStr();
-      const existingToday = fetchedLogs.find(l => l.date === todayStr);
-
-      if (existingToday) {
-        setTodayLog(existingToday);
-      } else {
-        setTodayLog({
-          date: todayStr,
-          categories: {},
-          reflection: '',
-          rating: 0,
-          events: [],
-          antiGoals: {},
-          habits: {}
-        });
-      }
-      setDataLoading(false);
-    }, (error) => {
-      console.error("Group Data Listen Error:", error);
-      setDataLoading(false);
-    });
-
-    return () => {
-      unsubscribeLogs();
-    };
-  }, [user, currentGroupId]);
-
   const handleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -573,19 +474,17 @@ export default function ScholarsCompass() {
 
   const handleLogout = async () => {
     await signOut(auth);
-      setLogs([]);
-      setTodayLog(null);
-      setGoogleAccessToken(null);
-      localStorage.removeItem('g_drive_token');
-      localStorage.removeItem('g_drive_token_expiry');
-      sessionStorage.removeItem('setup_hint_shown');
-      setCurrentGroupId(null);
-      setGroups([]);
-    };
+    setLogs([]);
+    setTodayLog(null);
+    setGoogleAccessToken(null);
+    localStorage.removeItem('g_drive_token');
+    localStorage.removeItem('g_drive_token_expiry');
+    sessionStorage.removeItem('setup_hint_shown');
+  };
 
   // --- Data Fetching ---
   useEffect(() => {
-    if (!user || user.isAnonymous || !appId || isGroupMode) return;
+    if (!user || user.isAnonymous || !appId) return;
 
     const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
     getDoc(configRef).then(snap => {
@@ -1107,50 +1006,6 @@ export default function ScholarsCompass() {
   
   const updateAntiGoalTitle = (id: string, title: string) => {
       saveConfig({ ...config, antiGoals: config.antiGoals.map(ag => ag.id === id ? {...ag, title} : ag)});
-  };
-
-  const createGroup = async () => {
-      if (!user || !newGroupName.trim()) return;
-      setGroupActionError(null);
-      setGroupActionLoading(true);
-      try {
-        const groupsRef = collection(db, 'artifacts', appId, 'groups');
-        const createdAt = new Date().toISOString();
-        const groupDoc = await addDoc(groupsRef, { name: newGroupName.trim(), ownerUid: user.uid, createdAt });
-        const groupId = groupDoc.id;
-        await setDoc(doc(db, 'artifacts', appId, 'groups', groupId, 'members', user.uid), { role: 'owner', joinedAt: createdAt });
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'groups', groupId), { name: newGroupName.trim(), ownerUid: user.uid, createdAt, role: 'owner' });
-        setNewGroupName('');
-        setCurrentGroupId(groupId);
-      } catch (e: any) {
-        console.error("Group create error", e);
-        setGroupActionError(e?.message || 'Unable to create group. Check permissions and try again.');
-      } finally {
-        setGroupActionLoading(false);
-      }
-  };
-
-  const joinGroup = async () => {
-      if (!user || !joinGroupId.trim()) return;
-      setGroupActionError(null);
-      setGroupActionLoading(true);
-      try {
-        const trimmed = joinGroupId.trim();
-        const groupRef = doc(db, 'artifacts', appId, 'groups', trimmed);
-        const snap = await getDoc(groupRef);
-        if (!snap.exists()) { setGroupActionError('Group not found.'); return; }
-        const createdAt = new Date().toISOString();
-        await setDoc(doc(db, 'artifacts', appId, 'groups', trimmed, 'members', user.uid), { role: 'member', joinedAt: createdAt });
-        const groupData = snap.data() as any;
-        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'groups', trimmed), { name: groupData.name || 'Group', ownerUid: groupData.ownerUid || '', createdAt: groupData.createdAt || createdAt, role: 'member' });
-        setJoinGroupId('');
-        setCurrentGroupId(trimmed);
-      } catch (e: any) {
-        console.error("Join group error", e);
-        setGroupActionError(e?.message || 'Unable to join group. Check the ID and try again.');
-      } finally {
-        setGroupActionLoading(false);
-      }
   };
 
   const addScholarApp = () => {
@@ -1985,27 +1840,6 @@ export default function ScholarsCompass() {
                 </button>
                 ))}
             </div>
-            <div className="hidden lg:flex items-center gap-2">
-              <label className="text-[11px] font-bold text-slate-500 uppercase">Mode</label>
-              <select
-                value={currentGroupId || 'personal'}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setCurrentGroupId(val === 'personal' ? null : val);
-                }}
-                className="text-xs px-2 py-1 rounded border border-slate-200 bg-white text-slate-700 focus:border-indigo-500 outline-none"
-              >
-                <option value="personal">Personal</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-              {activeGroup && (
-                <span className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                  {activeGroup.role === 'owner' ? 'Coordinator' : 'Member'}
-                </span>
-              )}
-            </div>
             
             {/* User Profile & Logout */}
             <div className="flex items-center gap-2 ml-2 pl-2 border-l border-slate-200">
@@ -2039,14 +1873,6 @@ export default function ScholarsCompass() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
-
-        {isGroupMode && (
-          <div className="mb-4 p-3 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-800 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wide">Group mode</span>
-            <span className="text-sm font-semibold">{activeGroup?.name}</span>
-            <span className="text-[11px] text-indigo-700/80">Shared goals, calendar, and library are now loaded from this group.</span>
-          </div>
-        )}
 
         {/* --- VIEW: CALENDAR --- */}
         {view === 'calendar' && (
@@ -2625,58 +2451,6 @@ export default function ScholarsCompass() {
         {/* --- VIEW: SETTINGS --- */}
         {view === 'settings' && (
            <div className="animate-fade-in space-y-6">
-             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-               <div className="flex items-center justify-between mb-4">
-                 <div>
-                   <p className="text-xs uppercase font-bold text-slate-400">Groups (beta)</p>
-                   <h2 className="font-serif text-xl font-bold text-slate-900">Collaborate</h2>
-                 </div>
-                 {currentGroupId && <span className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">Active: {currentGroupId}</span>}
-               </div>
-               <div className="grid md:grid-cols-2 gap-4">
-                 <div className="space-y-2">
-                   <label className="text-[11px] text-slate-500 uppercase font-bold">Create group</label>
-                   <div className="flex gap-2">
-                     <input 
-                       value={newGroupName}
-                       onChange={(e) => setNewGroupName(e.target.value)}
-                       placeholder="e.g., Quantum Lab A"
-                       className="flex-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
-                     />
-                     <button onClick={createGroup} className="px-3 py-2 text-xs font-bold bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50" disabled={!newGroupName.trim() || groupActionLoading}>{groupActionLoading ? '...' : 'Create'}</button>
-                   </div>
-                 </div>
-                 <div className="space-y-2">
-                   <label className="text-[11px] text-slate-500 uppercase font-bold">Join group by ID</label>
-                   <div className="flex gap-2">
-                     <input 
-                       value={joinGroupId}
-                       onChange={(e) => setJoinGroupId(e.target.value)}
-                       placeholder="Enter group ID"
-                       className="flex-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
-                     />
-                     <button onClick={joinGroup} className="px-3 py-2 text-xs font-bold bg-slate-800 text-white rounded hover:bg-slate-900 disabled:opacity-50" disabled={!joinGroupId.trim() || groupActionLoading}>{groupActionLoading ? '...' : 'Join'}</button>
-                   </div>
-                 </div>
-               </div>
-               {groupActionError && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded p-2 mt-2">{groupActionError}</div>}
-               <div className="mt-4">
-                 <p className="text-[11px] uppercase font-bold text-slate-500 mb-2">Your groups</p>
-                 {groups.length === 0 && <p className="text-xs text-slate-400 italic">No groups yet. Create or join one.</p>}
-                 <div className="flex flex-wrap gap-2">
-                   {groups.map(g => (
-                     <button 
-                       key={g.id} 
-                       onClick={() => setCurrentGroupId(g.id)} 
-                       className={`text-xs px-3 py-1 rounded-full border ${currentGroupId === g.id ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}
-                       title={`Role: ${g.role || 'member'}`}
-                     >
-                       {g.name}
-                     </button>
-                   ))}
-                 </div>
-               </div>
-             </div>
              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
                <div className="space-y-4 mb-6">
