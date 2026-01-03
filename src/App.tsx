@@ -488,7 +488,65 @@ export default function ScholarsCompass() {
       if (list.length > 0 && !currentGroupId) setCurrentGroupId(list[0].id);
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isGroupMode]);
+
+  // --- Group Data Fetch (config + logs) ---
+  useEffect(() => {
+    if (!user || user.isAnonymous || !currentGroupId) return;
+    setDataLoading(true);
+
+    const configRef = doc(db, 'artifacts', appId, 'groups', currentGroupId, 'config', 'main');
+    const logsRef = collection(db, 'artifacts', appId, 'groups', currentGroupId, 'daily_logs');
+
+    const configPromise = getDoc(configRef).then(snap => {
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        setConfig({
+          categories: data.categories || defaultCategories,
+          antiGoals: data.antiGoals || defaultAntiGoals,
+          habits: data.habits || defaultHabits,
+          streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2,
+          scholarApps: data.scholarApps || defaultScholarApps,
+          entertainmentApps: data.entertainmentApps || defaultEntertainmentApps
+        });
+      } else {
+        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps };
+        setConfig(initialConfig);
+        setDoc(configRef, initialConfig).catch(() => {});
+      }
+    });
+
+    const unsubscribeLogs = onSnapshot(logsRef, (snapshot) => {
+      const fetchedLogs: DailyLog[] = [];
+      snapshot.forEach((doc) => fetchedLogs.push(doc.data() as DailyLog));
+      setLogs(fetchedLogs);
+
+      const todayStr = getTodayStr();
+      const existingToday = fetchedLogs.find(l => l.date === todayStr);
+
+      if (existingToday) {
+        setTodayLog(existingToday);
+      } else {
+        setTodayLog({
+          date: todayStr,
+          categories: {},
+          reflection: '',
+          rating: 0,
+          events: [],
+          antiGoals: {},
+          habits: {}
+        });
+      }
+      setDataLoading(false);
+    }, (error) => {
+      console.error("Group Data Listen Error:", error);
+      setDataLoading(false);
+    });
+
+    return () => {
+      unsubscribeLogs();
+    };
+  }, [user, currentGroupId]);
 
   const handleLogin = async () => {
     try {
@@ -515,17 +573,19 @@ export default function ScholarsCompass() {
 
   const handleLogout = async () => {
     await signOut(auth);
-    setLogs([]);
-    setTodayLog(null);
-    setGoogleAccessToken(null);
-    localStorage.removeItem('g_drive_token');
-    localStorage.removeItem('g_drive_token_expiry');
-    sessionStorage.removeItem('setup_hint_shown');
-  };
+      setLogs([]);
+      setTodayLog(null);
+      setGoogleAccessToken(null);
+      localStorage.removeItem('g_drive_token');
+      localStorage.removeItem('g_drive_token_expiry');
+      sessionStorage.removeItem('setup_hint_shown');
+      setCurrentGroupId(null);
+      setGroups([]);
+    };
 
   // --- Data Fetching ---
   useEffect(() => {
-    if (!user || user.isAnonymous || !appId) return;
+    if (!user || user.isAnonymous || !appId || isGroupMode) return;
 
     const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
     getDoc(configRef).then(snap => {
@@ -1984,7 +2044,7 @@ export default function ScholarsCompass() {
           <div className="mb-4 p-3 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-800 flex flex-wrap items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wide">Group mode</span>
             <span className="text-sm font-semibold">{activeGroup?.name}</span>
-            <span className="text-[11px] text-indigo-700/80">Shared data wiring in progress — currently showing personal data until group collections are connected.</span>
+            <span className="text-[11px] text-indigo-700/80">Shared goals, calendar, and library are now loaded from this group.</span>
           </div>
         )}
 
