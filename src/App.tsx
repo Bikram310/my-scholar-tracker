@@ -251,6 +251,24 @@ const ProgressBar = ({ value, max, label, colorClass, suffix = '' }: { value: nu
     );
 };
 
+const PlanRealityBar = ({ actual, planned }: { actual: number, planned: number }) => {
+  const pct = planned > 0 ? Math.min((actual / planned) * 100, 120) : 0;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+        <span>Plan vs Reality</span>
+        <span className="font-mono">{actual.toFixed(1)}h / {planned.toFixed(1)}h</span>
+      </div>
+      <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+        <div
+          className={`h-full ${actual >= planned ? 'bg-emerald-500' : 'bg-indigo-500'}`}
+          style={{ width: `${pct}%` }}
+        ></div>
+      </div>
+    </div>
+  );
+};
+
 const StarRating = ({ rating, onChange, readOnly = false }: { rating: number, onChange?: (r: number) => void, readOnly?: boolean }) => {
   return (
     <div className="flex gap-1">
@@ -354,6 +372,8 @@ export default function ScholarsCompass() {
     emoji: '🎉'
   });
   const [showCustomEntertainmentForm, setShowCustomEntertainmentForm] = useState(false);
+  const [goalCelebrations, setGoalCelebrations] = useState<Set<string>>(new Set());
+  const [habitCelebrations, setHabitCelebrations] = useState<Set<string>>(new Set());
 
   // --- Clock ---
   useEffect(() => {
@@ -363,6 +383,27 @@ export default function ScholarsCompass() {
       setIstMinutes(ist.getMinutes());
     }, 60000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Celebration keyframes
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      @keyframes celebrate-pop { 
+        0% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0); } 
+        50% { transform: scale(1.04); box-shadow: 0 10px 22px rgba(34,197,94,0.25); } 
+        100% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0); } 
+      }
+      @keyframes glow-check { 
+        0% { box-shadow: 0 0 0 rgba(79,70,229,0); } 
+        50% { box-shadow: 0 0 20px rgba(79,70,229,0.35); } 
+        100% { box-shadow: 0 0 0 rgba(79,70,229,0); } 
+      }
+      .celebrate-pop { animation: celebrate-pop 0.6s ease; }
+      .glow-check { animation: glow-check 0.7s ease; }
+    `;
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
   }, []);
 
   // --- Auth Logic ---
@@ -803,6 +844,36 @@ export default function ScholarsCompass() {
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
   };
 
+  const triggerGoalCelebration = (key: string) => {
+    setGoalCelebrations(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    setTimeout(() => {
+      setGoalCelebrations(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }, 700);
+  };
+
+  const triggerHabitCelebration = (key: string) => {
+    setHabitCelebrations(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+    setTimeout(() => {
+      setHabitCelebrations(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }, 800);
+  };
+
   const cycleGoalStatus = (catId: string, idx: number) => {
     if (!activeLog) return;
     const newCatLog = { ...activeLog.categories[catId] };
@@ -813,6 +884,7 @@ export default function ScholarsCompass() {
     else if (currentStatus === 'completed') nextStatus = 'pending';
     newCatLog.goalStatus[idx] = nextStatus;
     saveLog({ ...activeLog, categories: { ...activeLog.categories, [catId]: newCatLog } });
+    if (nextStatus === 'completed') triggerGoalCelebration(`${catId}-${idx}`);
   };
 
   // --- GOOGLE DRIVE UPLOAD HANDLER ---
@@ -1002,7 +1074,9 @@ export default function ScholarsCompass() {
       const allowed = visibleHabitsForDate(activeLog.date).some(h => h.id === hId);
       if (!allowed) return;
       const current = activeLog.habits[hId] || false;
-      saveLog({ ...activeLog, habits: { ...activeLog.habits, [hId]: !current } });
+      const next = !current;
+      saveLog({ ...activeLog, habits: { ...activeLog.habits, [hId]: next } });
+      if (next) triggerHabitCelebration(hId);
   };
 
   const addHabit = () => {
@@ -2506,19 +2580,25 @@ export default function ScholarsCompass() {
                     <h3 className={`text-xs font-bold uppercase tracking-wider mb-3 text-${cat.color}-600`}>{cat.title}</h3>
                     <div className="space-y-2 mb-3">
                       {activeLog.categories[cat.id]?.goals.map((g, i) => (
-                        <div key={i} className="flex items-center justify-between text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100 group">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400`}></div>
-                            <span>{g}</span>
-                          </div>
-                          <button 
-                            onClick={() => handleGoalDelete(cat.id, i)}
-                            className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                            title="Remove Goal"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
+                        (() => {
+                          const goalKey = `${cat.id}-${i}`;
+                          const celebrate = goalCelebrations.has(goalKey);
+                          return (
+                            <div key={i} className={`flex items-center justify-between text-sm text-slate-700 bg-slate-50 p-2 rounded border border-slate-100 group ${celebrate ? 'celebrate-pop' : ''}`}>
+                              <div className="flex items-center gap-2">
+                                <div className={`w-1.5 h-1.5 rounded-full bg-${cat.color}-400`}></div>
+                                <span>{g}</span>
+                              </div>
+                              <button 
+                                onClick={() => handleGoalDelete(cat.id, i)}
+                                className="text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                                title="Remove Goal"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          );
+                        })()
                       ))}
                     </div>
                     <div className="flex gap-2">
@@ -2874,25 +2954,36 @@ export default function ScholarsCompass() {
               <p className="text-indigo-200 opacity-80">Consolidate your progress.</p>
             </div>
 
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
-              <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-3">Rate your day</label>
-                  <StarRating rating={activeLog.rating} onChange={(r) => saveLog({ ...activeLog, rating: r })} />
-              </div>
+              <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
+                <div>
+                    <label className="block text-sm font-bold text-slate-700 mb-3">Rate your day</label>
+                    <StarRating rating={activeLog.rating} onChange={(r) => saveLog({ ...activeLog, rating: r })} />
+                </div>
 
-              {/* Lifestyle Habits Section */}
-              <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
-                <h4 className="font-bold text-emerald-900 uppercase text-xs tracking-wider mb-3 flex items-center gap-2">
-                  <Activity size={14} /> Lifestyle Protocol
+                {(() => {
+                  const actualHours = Object.values(activeLog.categories || {}).reduce((acc, c) => acc + (c.hours || 0), 0);
+                  const plannedHours = 6;
+                  return (
+                    <div className="bg-slate-50 border border-slate-100 p-3 rounded-lg">
+                      <PlanRealityBar actual={actualHours} planned={plannedHours} />
+                    </div>
+                  );
+                })()}
+
+                {/* Lifestyle Habits Section */}
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                  <h4 className="font-bold text-emerald-900 uppercase text-xs tracking-wider mb-3 flex items-center gap-2">
+                    <Activity size={14} /> Lifestyle Protocol
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   {config.habits?.map((h) => {
                     const isDone = activeLog.habits?.[h.id] || false;
+                    const celebrateHabit = habitCelebrations.has(h.id);
                     return (
                       <button
                         key={h.id}
                         onClick={() => toggleHabit(h.id)}
-                        className={`flex items-center justify-between p-3 rounded-lg border text-sm font-medium transition-all ${
+                        className={`flex items-center justify-between p-3 rounded-lg border text-sm font-medium transition-all ${celebrateHabit ? 'glow-check' : ''} ${
                           isDone 
                             ? 'bg-emerald-100 border-emerald-300 text-emerald-800' 
                             : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
