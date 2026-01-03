@@ -330,6 +330,7 @@ export default function ScholarsCompass() {
     accent: 'indigo',
     emoji: '⭐'
   });
+  const [showCustomAppForm, setShowCustomAppForm] = useState(false);
 
   // --- Clock ---
   useEffect(() => {
@@ -912,6 +913,7 @@ export default function ScholarsCompass() {
       const updated = [...(config.scholarApps || defaultScholarApps), app];
       saveConfig({ ...config, scholarApps: updated });
       setNewScholarApp({ name: '', url: '', accent: 'indigo', emoji: '⭐' });
+      setShowCustomAppForm(false);
   };
 
   const deleteScholarApp = (id: string) => {
@@ -2017,8 +2019,11 @@ export default function ScholarsCompass() {
                          const val = e.target.value;
                          if (!val) return;
                          if (val === 'custom') {
-                           const nameInput = document.getElementById('scholar-app-name');
-                           nameInput?.focus();
+                           setShowCustomAppForm(true);
+                           setTimeout(() => {
+                             const nameInput = document.getElementById('scholar-app-name');
+                             nameInput?.focus();
+                           }, 50);
                          } else {
                            addPresetScholarApp(val);
                          }
@@ -2055,56 +2060,64 @@ export default function ScholarsCompass() {
                      </div>
                    ))}
                  </div>
-                 <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3 items-end border-t border-slate-100 pt-3">
-                   <div className="md:col-span-2">
-                     <label className="text-[11px] text-slate-500 uppercase font-bold">App name</label>
-                     <input 
-                       value={newScholarApp.name}
-                       onChange={(e) => setNewScholarApp({ ...newScholarApp, name: e.target.value })}
-                       placeholder="Zotero"
-                       id="scholar-app-name"
-                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
-                     />
+                 {showCustomAppForm && (
+                   <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3 items-end border-t border-slate-100 pt-3">
+                     <div className="md:col-span-2">
+                       <label className="text-[11px] text-slate-500 uppercase font-bold">App name</label>
+                       <input 
+                         value={newScholarApp.name}
+                         onChange={(e) => setNewScholarApp({ ...newScholarApp, name: e.target.value })}
+                         placeholder="Zotero"
+                         id="scholar-app-name"
+                         className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
+                       />
+                     </div>
+                     <div className="md:col-span-2">
+                       <label className="text-[11px] text-slate-500 uppercase font-bold">URL</label>
+                       <input 
+                         value={newScholarApp.url}
+                         onChange={(e) => setNewScholarApp({ ...newScholarApp, url: e.target.value })}
+                         placeholder="https://www.zotero.org/"
+                         className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
+                       />
+                     </div>
+                     <div>
+                       <label className="text-[11px] text-slate-500 uppercase font-bold">Accent</label>
+                       <select 
+                         value={newScholarApp.accent}
+                         onChange={(e) => setNewScholarApp({ ...newScholarApp, accent: e.target.value })}
+                         className="w-full mt-1 p-2 rounded border border-slate-200 text-sm bg-white focus:border-indigo-500 outline-none"
+                       >
+                         {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
+                         <option value="teal">teal</option>
+                       </select>
+                     </div>
+                     <div>
+                       <label className="text-[11px] text-slate-500 uppercase font-bold">Emoji</label>
+                       <input 
+                         value={newScholarApp.emoji}
+                         onChange={(e) => setNewScholarApp({ ...newScholarApp, emoji: e.target.value })}
+                         maxLength={2}
+                         className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
+                       />
+                     </div>
+                     <div className="md:col-span-4 flex justify-end gap-2">
+                       <button 
+                         onClick={() => { setShowCustomAppForm(false); setNewScholarApp({ name: '', url: '', accent: 'indigo', emoji: '⭐' }); }}
+                         className="px-4 py-2 text-sm font-bold text-slate-500 rounded-lg border border-slate-200 hover:bg-slate-50"
+                       >
+                         Cancel
+                       </button>
+                       <button 
+                         onClick={addScholarApp}
+                         className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                         disabled={!newScholarApp.name.trim() || !newScholarApp.url.trim()}
+                       >
+                         Add app
+                       </button>
+                     </div>
                    </div>
-                   <div className="md:col-span-2">
-                     <label className="text-[11px] text-slate-500 uppercase font-bold">URL</label>
-                     <input 
-                       value={newScholarApp.url}
-                       onChange={(e) => setNewScholarApp({ ...newScholarApp, url: e.target.value })}
-                       placeholder="https://www.zotero.org/"
-                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
-                     />
-                   </div>
-                   <div>
-                     <label className="text-[11px] text-slate-500 uppercase font-bold">Accent</label>
-                     <select 
-                       value={newScholarApp.accent}
-                       onChange={(e) => setNewScholarApp({ ...newScholarApp, accent: e.target.value })}
-                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm bg-white focus:border-indigo-500 outline-none"
-                     >
-                       {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
-                       <option value="teal">teal</option>
-                     </select>
-                   </div>
-                   <div>
-                     <label className="text-[11px] text-slate-500 uppercase font-bold">Emoji</label>
-                     <input 
-                       value={newScholarApp.emoji}
-                       onChange={(e) => setNewScholarApp({ ...newScholarApp, emoji: e.target.value })}
-                       maxLength={2}
-                       className="w-full mt-1 p-2 rounded border border-slate-200 text-sm focus:border-indigo-500 outline-none"
-                     />
-                   </div>
-                   <div className="md:col-span-4 flex justify-end">
-                     <button 
-                       onClick={addScholarApp}
-                       className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                       disabled={!newScholarApp.name.trim() || !newScholarApp.url.trim()}
-                     >
-                       Add app
-                     </button>
-                   </div>
-                 </div>
+                 )}
                </div>
 
                {libraryItems.length === 0 ? (
