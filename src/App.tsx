@@ -389,15 +389,30 @@ export default function ScholarsCompass() {
     getDoc(configRef).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
-        setConfig({
-            categories: data.categories || defaultCategories,
-            antiGoals: data.antiGoals || defaultAntiGoals,
-            habits: data.habits || defaultHabits,
-            streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2
+        const todayStr = getTodayStr();
+        const incomingHabits: HabitDef[] = data.habits || defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
+        let habitsUpdated = false;
+        const normalizedHabits = incomingHabits.map(habit => {
+          if (habit.createdAt) return habit;
+          habitsUpdated = true;
+          return { ...habit, createdAt: todayStr };
         });
+        const normalizedConfig: UserConfig = {
+          categories: data.categories || defaultCategories,
+          antiGoals: data.antiGoals || defaultAntiGoals,
+          habits: normalizedHabits,
+          streakFreezes: data.streakFreezes !== undefined ? data.streakFreezes : 2
+        };
+        setConfig(normalizedConfig);
+        if (habitsUpdated) {
+          setDoc(configRef, normalizedConfig).catch(e => console.error("Config Habit Normalization Error", e));
+        }
       } else {
-        setDoc(configRef, { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: defaultHabits, streakFreezes: 2 })
-          .catch(e => console.error("Config Init Error", e));
+        const todayStr = getTodayStr();
+        const seededHabits = defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
+        const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2 };
+        setConfig(initialConfig);
+        setDoc(configRef, initialConfig).catch(e => console.error("Config Init Error", e));
       }
     }).catch(err => {
       console.error("Config Fetch Error", err);
@@ -456,11 +471,16 @@ export default function ScholarsCompass() {
     const handleVisibility = () => document.visibilityState === 'visible' && syncTodayLogToIST();
     document.addEventListener('visibilitychange', handleVisibility);
     const handleMouseUp = () => setIsBulkDragging(false);
+    const handleTouchEnd = () => setIsBulkDragging(false);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchcancel', handleTouchEnd);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [syncTodayLogToIST]);
 
@@ -468,8 +488,8 @@ export default function ScholarsCompass() {
 
   const visibleHabitsForDate = (date: string) => {
     return (config.habits || []).filter(h => {
-      if (!h.createdAt) return true;
-      return date >= h.createdAt;
+      const startDate = h.createdAt || getTodayStr();
+      return date >= startDate;
     });
   };
 
@@ -912,6 +932,31 @@ export default function ScholarsCompass() {
     setBulkAnchorDate(date);
   };
 
+  const getDateFromTouch = (touch: Touch) => {
+    const target = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
+    return target?.closest('[data-date]')?.getAttribute('data-date');
+  };
+
+  const handleBulkTouchStart = (e: React.TouchEvent, date: string) => {
+    if (!bulkSelectMode) return;
+    const mode: 'add' | 'remove' = bulkSelectedDates.has(date) ? 'remove' : 'add';
+    setBulkDragMode(mode);
+    setIsBulkDragging(true);
+    applyBulkDateAction(date, mode);
+    if (e.cancelable) e.preventDefault();
+  };
+
+  const handleBulkTouchMove = (e: React.TouchEvent) => {
+    if (!bulkSelectMode || !isBulkDragging) return;
+    const touch = e.touches[0];
+    if (!touch) return;
+    const date = getDateFromTouch(touch);
+    if (date) {
+      applyBulkDateAction(date, bulkDragMode);
+      if (e.cancelable) e.preventDefault();
+    }
+  };
+
   const toggleBulkDate = (date: string) => {
     const mode: 'add' | 'remove' = bulkSelectedDates.has(date) ? 'remove' : 'add';
     if (bulkSelectMode && mode === 'add' && bulkAnchorDate) {
@@ -1193,11 +1238,14 @@ export default function ScholarsCompass() {
       days.push(
         <div 
           key={d} 
+          data-date={dateStr}
           onClick={() => {
             if (bulkSelectMode) toggleBulkDate(dateStr);
             setSelectedDate(dateStr);
           }}
           onDoubleClick={() => setHistoryDate(dateStr)} // Double click for Time Machine
+          onTouchStart={(e) => handleBulkTouchStart(e, dateStr)}
+          onTouchMove={handleBulkTouchMove}
           onMouseDown={(e) => {
             if (!bulkSelectMode) return;
             e.preventDefault();
