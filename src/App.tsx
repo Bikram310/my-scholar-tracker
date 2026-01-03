@@ -295,8 +295,6 @@ export default function ScholarsCompass() {
   const [bulkEventType, setBulkEventType] = useState<'workshop' | 'deadline' | 'reminder' | 'leave'>('workshop');
   const [bulkEmailReminder, setBulkEmailReminder] = useState(false);
   const [bulkAnchorDate, setBulkAnchorDate] = useState<string | null>(null);
-  const [isBulkDragging, setIsBulkDragging] = useState(false);
-  const [bulkDragMode, setBulkDragMode] = useState<'add' | 'remove'>('add');
   
   // Temp state
   const [newGoalInputs, setNewGoalInputs] = useState<Record<string, string>>({});
@@ -470,17 +468,9 @@ export default function ScholarsCompass() {
     const interval = setInterval(syncTodayLogToIST, 60 * 1000);
     const handleVisibility = () => document.visibilityState === 'visible' && syncTodayLogToIST();
     document.addEventListener('visibilitychange', handleVisibility);
-    const handleMouseUp = () => setIsBulkDragging(false);
-    const handleTouchEnd = () => setIsBulkDragging(false);
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('touchend', handleTouchEnd);
-    window.addEventListener('touchcancel', handleTouchEnd);
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchend', handleTouchEnd);
-      window.removeEventListener('touchcancel', handleTouchEnd);
     };
   }, [syncTodayLogToIST]);
 
@@ -923,51 +913,23 @@ export default function ScholarsCompass() {
     return dates;
   };
 
-  const applyBulkDateAction = (date: string, mode: 'add' | 'remove') => {
-    setBulkSelectedDates(prev => {
-      const next = new Set(prev);
-      if (mode === 'add') next.add(date); else next.delete(date);
-      return next;
-    });
-    setBulkAnchorDate(date);
-  };
-
-  const getDateFromTouch = (touch: Touch) => {
-    const target = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
-    return target?.closest('[data-date]')?.getAttribute('data-date');
-  };
-
-  const handleBulkTouchStart = (e: React.TouchEvent, date: string) => {
-    if (!bulkSelectMode) return;
-    const mode: 'add' | 'remove' = bulkSelectedDates.has(date) ? 'remove' : 'add';
-    setBulkDragMode(mode);
-    setIsBulkDragging(true);
-    applyBulkDateAction(date, mode);
-    if (e.cancelable) e.preventDefault();
-  };
-
-  const handleBulkTouchMove = (e: React.TouchEvent) => {
-    if (!bulkSelectMode || !isBulkDragging) return;
-    const touch = e.touches[0];
-    if (!touch) return;
-    const date = getDateFromTouch(touch);
-    if (date) {
-      applyBulkDateAction(date, bulkDragMode);
-      if (e.cancelable) e.preventDefault();
-    }
-  };
-
   const toggleBulkDate = (date: string) => {
-    const mode: 'add' | 'remove' = bulkSelectedDates.has(date) ? 'remove' : 'add';
-    if (bulkSelectMode && mode === 'add' && bulkAnchorDate) {
-      getDateRange(bulkAnchorDate, date).forEach(d => applyBulkDateAction(d, 'add'));
-    } else {
-      applyBulkDateAction(date, mode);
-    }
+    finalizeRangeSelection(date);
   };
 
   const clearBulkSelection = () => {
     setBulkSelectedDates(new Set());
+    setBulkAnchorDate(null);
+  };
+
+  const finalizeRangeSelection = (date: string) => {
+    if (!bulkAnchorDate) {
+      setBulkSelectedDates(new Set([date]));
+      setBulkAnchorDate(date);
+      return;
+    }
+    const range = getDateRange(bulkAnchorDate, date);
+    setBulkSelectedDates(new Set(range));
     setBulkAnchorDate(null);
   };
 
@@ -1014,13 +976,6 @@ export default function ScholarsCompass() {
       saveLog({ ...log, events: [] });
     });
     clearBulkSelection();
-  };
-
-  const fillRangeFromSelection = () => {
-    if (bulkSelectedDates.size < 2) return;
-    const ordered = Array.from(bulkSelectedDates).sort();
-    const range = getDateRange(ordered[0], ordered[ordered.length - 1]);
-    setBulkSelectedDates(new Set(range));
   };
 
   const updateCategoryTitle = (id: string, newTitle: string) => {
@@ -1244,21 +1199,6 @@ export default function ScholarsCompass() {
             setSelectedDate(dateStr);
           }}
           onDoubleClick={() => setHistoryDate(dateStr)} // Double click for Time Machine
-          onTouchStart={(e) => handleBulkTouchStart(e, dateStr)}
-          onTouchMove={handleBulkTouchMove}
-          onMouseDown={(e) => {
-            if (!bulkSelectMode) return;
-            e.preventDefault();
-            const mode: 'add' | 'remove' = bulkSelectedDates.has(dateStr) ? 'remove' : 'add';
-            setBulkDragMode(mode);
-            setIsBulkDragging(true);
-            applyBulkDateAction(dateStr, mode);
-          }}
-          onMouseEnter={() => {
-            if (bulkSelectMode && isBulkDragging) {
-              applyBulkDateAction(dateStr, bulkDragMode);
-            }
-          }}
           className={`h-24 p-1 border cursor-pointer transition-colors flex flex-col justify-between relative select-none
             ${isSelected ? 'border-indigo-500 ring-1 ring-indigo-500 bg-white z-10' : 'border-slate-200 bg-white hover:bg-slate-50'}
             ${isToday ? 'bg-indigo-50' : ''}
@@ -1718,7 +1658,7 @@ export default function ScholarsCompass() {
                    </button>
                  </div>
                  <div className="text-[11px] text-slate-500 mb-2">Click dates in the calendar to toggle them.</div>
-                 <div className="text-[11px] text-slate-500 mb-2">Tip: start selecting, then drag over days to add/remove; first+last click fills the range.</div>
+                 <div className="text-[11px] text-slate-500 mb-2">Tip: click a start date, then click an end date to auto-select the full range.</div>
                  <div className="flex flex-wrap gap-2 mb-2">
                    {Array.from(bulkSelectedDates).map(d => (
                      <span key={d} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-700 rounded border border-indigo-200">{d}</span>
