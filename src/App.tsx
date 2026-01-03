@@ -62,7 +62,9 @@ import {
   Activity,
   Heart,
   Copy,
-  Grid
+  Grid,
+  MessageCircle,
+  Mail
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
