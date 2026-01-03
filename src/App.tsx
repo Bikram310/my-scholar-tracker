@@ -387,6 +387,7 @@ export default function ScholarsCompass() {
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [joinGroupId, setJoinGroupId] = useState('');
+  const activeGroup = groups.find(g => g.id === currentGroupId);
 
   // --- Clock ---
   useEffect(() => {
@@ -1901,6 +1902,27 @@ export default function ScholarsCompass() {
                     <span className="hidden lg:inline text-xs font-bold uppercase">{tab.label}</span>
                 </button>
                 ))}
+            </div>
+            <div className="hidden lg:flex items-center gap-2">
+              <label className="text-[11px] font-bold text-slate-500 uppercase">Mode</label>
+              <select
+                value={currentGroupId || 'personal'}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCurrentGroupId(val === 'personal' ? null : val);
+                }}
+                className="text-xs px-2 py-1 rounded border border-slate-200 bg-white text-slate-700 focus:border-indigo-500 outline-none"
+              >
+                <option value="personal">Personal</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              {activeGroup && (
+                <span className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  {activeGroup.role === 'owner' ? 'Coordinator' : 'Member'}
+                </span>
+              )}
             </div>
             
             {/* User Profile & Logout */}
