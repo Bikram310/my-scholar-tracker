@@ -376,6 +376,7 @@ export default function ScholarsCompass() {
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [newWorkspaceMembers, setNewWorkspaceMembers] = useState('');
   const [joinWorkspaceCode, setJoinWorkspaceCode] = useState('');
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
   
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
@@ -531,6 +532,8 @@ export default function ScholarsCompass() {
     localStorage.removeItem('g_drive_token_expiry');
     sessionStorage.removeItem('setup_hint_shown');
   };
+
+  const generateInviteCode = () => `grp_${Math.random().toString(36).slice(2, 6)}${Date.now().toString().slice(-4)}`;
 
   // --- Workspace Index ---
   useEffect(() => {
@@ -1303,7 +1306,7 @@ export default function ScholarsCompass() {
       if (!user) return;
       const name = newWorkspaceName.trim();
       if (!name) return;
-      const id = `group_${Date.now()}`;
+      const id = generateInviteCode();
       const members = [user.email || 'You', ...newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean)];
       const newMeta: WorkspaceMeta = { id, name, members, adminId: user.uid, inviteCode: id };
       const updated = [...workspaces, newMeta];
@@ -1341,15 +1344,16 @@ export default function ScholarsCompass() {
           return;
         }
         const group = groupDoc.data() as WorkspaceMeta;
-        const alreadyMember = group.members.includes(user.email || user.uid);
+        const existingMembers = group.members || [];
+        const alreadyMember = existingMembers.includes(user.email || user.uid);
         if (!alreadyMember) {
-          const updatedMembers = [...group.members, user.email || user.uid];
+          const updatedMembers = [...existingMembers, user.email || user.uid];
           await setDoc(doc(db, 'artifacts', appId, 'groups', code), { ...group, members: updatedMembers });
-          const newMeta: WorkspaceMeta = { ...group, members: updatedMembers };
+          const newMeta: WorkspaceMeta = { ...group, members: updatedMembers, inviteCode: group.inviteCode || code, adminId: group.adminId };
           const merged = [...workspaces.filter(w => w.id !== code), newMeta];
           await persistWorkspaceIndex(merged);
         } else {
-          const merged = [...workspaces.filter(w => w.id !== code), group];
+          const merged = [...workspaces.filter(w => w.id !== code), { ...group, inviteCode: group.inviteCode || code, adminId: group.adminId }];
           await persistWorkspaceIndex(merged);
         }
         setWorkspaceMode({ type: 'group', id: code });
@@ -2963,9 +2967,16 @@ export default function ScholarsCompass() {
                           <div>
                             <div className="font-bold text-slate-800">{ws.name}</div>
                             <div className="text-[11px] text-slate-500">Members: {ws.members.join(', ') || '—'}</div>
+                            <div className="text-[11px] text-indigo-600 font-mono mt-1">Invite code: {ws.inviteCode || ws.id}</div>
                           </div>
                           <button onClick={() => switchWorkspace(ws.id)} className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100">Use</button>
                         </div>
+                        <button 
+                          onClick={() => { navigator.clipboard?.writeText(ws.inviteCode || ws.id); setCopyStatus(`Copied code for ${ws.name}`); setTimeout(() => setCopyStatus(null), 2000); }}
+                          className="mt-2 text-[11px] px-2 py-1 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                        >
+                          Copy invite code
+                        </button>
                       </div>
                     ))}
                     {workspaces.length === 0 && <div className="text-[12px] text-slate-500 italic">No groups yet.</div>}
@@ -2993,6 +3004,20 @@ export default function ScholarsCompass() {
                     >
                       Create & switch
                     </button>
+                    <div className="text-xs font-bold text-slate-500 uppercase mt-4">Join group by code</div>
+                    <input 
+                      value={joinWorkspaceCode}
+                      onChange={(e) => setJoinWorkspaceCode(e.target.value)}
+                      placeholder="Enter invite code"
+                      className="w-full text-sm p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
+                    />
+                    <button 
+                      onClick={joinWorkspace}
+                      className="w-full text-sm font-bold bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700 transition-colors"
+                    >
+                      Join group
+                    </button>
+                    {copyStatus && <div className="text-[11px] text-emerald-600">{copyStatus}</div>}
                   </div>
                 </div>
               </div>
