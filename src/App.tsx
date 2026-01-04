@@ -398,6 +398,8 @@ export default function ScholarsCompass() {
   const [showCustomEntertainmentForm, setShowCustomEntertainmentForm] = useState(false);
   const [goalCelebrations, setGoalCelebrations] = useState<Set<string>>(new Set());
   const [habitCelebrations, setHabitCelebrations] = useState<Set<string>>(new Set());
+  const [capturingCalendar, setCapturingCalendar] = useState(false);
+  const calendarCardRef = useRef<HTMLDivElement | null>(null);
 
   // --- Clock ---
   useEffect(() => {
@@ -642,6 +644,56 @@ export default function ScholarsCompass() {
     shareStatusTimer.current = window.setTimeout(() => setShareStatus(null), 4000);
   }, []);
 
+  const cloneWithComputedStyles = useCallback((source: HTMLElement) => {
+    const clone = source.cloneNode(true) as HTMLElement;
+    const copyRecursive = (src: HTMLElement, target: HTMLElement) => {
+      const computed = window.getComputedStyle(src);
+      const styleString = Array.from(computed).map(name => `${name}:${computed.getPropertyValue(name)};`).join('');
+      target.setAttribute('style', styleString);
+      Array.from(src.children).forEach((child, idx) => {
+        const targetChild = target.children[idx] as HTMLElement | undefined;
+        if (child instanceof HTMLElement && targetChild instanceof HTMLElement) {
+          copyRecursive(child, targetChild);
+        }
+      });
+    };
+    copyRecursive(source, clone);
+    return clone;
+  }, []);
+
+  const renderElementToJpeg = useCallback(async (element: HTMLElement) => {
+    const clone = cloneWithComputedStyles(element);
+    clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    const { width, height } = element.getBoundingClientRect();
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <foreignObject width="100%" height="100%">
+          ${new XMLSerializer().serializeToString(clone)}
+        </foreignObject>
+      </svg>
+    `;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scale = Math.max(2, window.devicePixelRatio || 1);
+        canvas.width = width * scale;
+        canvas.height = height * scale;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas not supported'));
+          return;
+        }
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      img.onerror = (err) => reject(err);
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    });
+    return dataUrl;
+  }, [cloneWithComputedStyles]);
+
   const buildSnapshotText = useCallback((date: string, options: SnapshotShareOptions) => {
     const log = getLogForDate(date);
     const lines: string[] = [`Scholar's Compass — Daily Snapshot`, date];
@@ -754,6 +806,35 @@ export default function ScholarsCompass() {
     showShareMessage('Snapshot ready. Copy and share manually from the dialog.');
     alert(snapshot);
   }, [buildSnapshotText, shareOptions, showShareMessage]);
+
+  const shareCalendarAsJpg = useCallback(async () => {
+    if (!calendarCardRef.current) return;
+    setCapturingCalendar(true);
+    try {
+      const dataUrl = await renderElementToJpeg(calendarCardRef.current);
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const fileName = `scholar-calendar-${selectedDate}.jpg`;
+      const file = new File([blob], fileName, { type: 'image/jpeg' });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Scholar Calendar', text: `Calendar view for ${selectedDate}` });
+        showShareMessage('Calendar view shared as JPG.');
+        return;
+      }
+
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = fileName;
+      link.click();
+      showShareMessage('Calendar view downloaded as JPG.');
+    } catch (err) {
+      console.error('Calendar snapshot failed', err);
+      showShareMessage('Unable to capture calendar JPG.');
+    } finally {
+      setCapturingCalendar(false);
+    }
+  }, [renderElementToJpeg, selectedDate, showShareMessage]);
 
   const cloneYesterdayIntoToday = () => {
     if (!todayLog) return;
@@ -2039,12 +2120,19 @@ export default function ScholarsCompass() {
         {view === 'calendar' && (
           <div className="animate-fade-in space-y-6">
             <div className="flex flex-col md:flex-row gap-6">
-              <div className="flex-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
+              <div ref={calendarCardRef} className="flex-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
                   <h2 className="font-serif text-xl font-bold text-slate-900">
                     {calDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                   </h2>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 items-center">
+                    <button 
+                      onClick={shareCalendarAsJpg} 
+                      className="flex items-center gap-1 text-xs px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-60"
+                      disabled={capturingCalendar}
+                    >
+                      <Download size={14} /> {capturingCalendar ? 'Rendering...' : 'JPG'}
+                    </button>
                     <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft size={20} /></button>
                     <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded"><ChevronRight size={20} /></button>
                   </div>
