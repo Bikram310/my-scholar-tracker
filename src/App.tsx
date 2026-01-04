@@ -377,7 +377,7 @@ export default function ScholarsCompass() {
   const [newWorkspaceMembers, setNewWorkspaceMembers] = useState('');
   const [joinWorkspaceCode, setJoinWorkspaceCode] = useState('');
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
-  
+
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
 
@@ -537,7 +537,8 @@ export default function ScholarsCompass() {
 
   const generateInviteCode = () => `grp_${Math.random().toString(36).slice(2, 6)}${Date.now().toString().slice(-4)}`;
 
-  const userIdentifier = useMemo(() => user?.email || user?.uid || 'guest', [user]);
+  const normalizeIdentity = (value?: string | null) => (value || '').trim().toLowerCase();
+  const userIdentifier = useMemo(() => normalizeIdentity(user?.email || user?.uid || 'guest'), [user]);
 
   // --- Workspace Index ---
   useEffect(() => {
@@ -549,7 +550,8 @@ export default function ScholarsCompass() {
         setWorkspaces((data.items || []).map((w: any) => ({
           ...w,
           adminId: w.adminId || user.uid,
-          inviteCode: w.inviteCode || w.id
+          inviteCode: w.inviteCode || w.id,
+          members: (w.members || []).map((m: string) => normalizeIdentity(m))
         })).filter((w: WorkspaceMeta) => (w.members || []).includes(userIdentifier) || w.adminId === user.uid));
       } else {
         setWorkspaces([]);
@@ -1325,7 +1327,7 @@ export default function ScholarsCompass() {
       const name = newWorkspaceName.trim();
       if (!name) return;
       const id = generateInviteCode();
-      const members = [userIdentifier, ...newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean)];
+      const members = [userIdentifier, ...newWorkspaceMembers.split(',').map(m => normalizeIdentity(m)).filter(Boolean)];
       const newMeta: WorkspaceMeta = { id, name, members, adminId: user.uid, inviteCode: id };
       const updated = [...workspaces, newMeta];
       await persistWorkspaceIndex(updated);
@@ -1363,7 +1365,7 @@ export default function ScholarsCompass() {
           return;
         }
         const group = groupDoc.data() as WorkspaceMeta;
-        const existingMembers = group.members || [];
+        const existingMembers = (group.members || []).map(m => normalizeIdentity(m));
         const alreadyMember = existingMembers.includes(userIdentifier);
         if (!alreadyMember) {
           const updatedMembers = [...existingMembers, userIdentifier];
