@@ -1322,6 +1322,18 @@ export default function ScholarsCompass() {
       await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index'), { items });
   }, [user, appId]);
 
+  const ensureWorkspaceIndex = useCallback(async () => {
+      if (!user) return [];
+      const idxRef = doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index');
+      const snap = await getDoc(idxRef);
+      if (!snap.exists()) {
+        await setDoc(idxRef, { items: [] });
+        return [];
+      }
+      const data = snap.data();
+      return (data.items || []) as WorkspaceMeta[];
+  }, [user, appId]);
+
   const addWorkspace = async () => {
       if (!user) return;
       const name = newWorkspaceName.trim();
@@ -1330,6 +1342,7 @@ export default function ScholarsCompass() {
       const members = [userIdentifier, ...newWorkspaceMembers.split(',').map(m => normalizeIdentity(m)).filter(Boolean)];
       const newMeta: WorkspaceMeta = { id, name, members, adminId: user.uid, inviteCode: id };
       const updated = [...workspaces, newMeta];
+      await ensureWorkspaceIndex();
       await persistWorkspaceIndex(updated);
       
       const todayStr = getTodayStr();
@@ -1359,6 +1372,7 @@ export default function ScholarsCompass() {
       const code = joinWorkspaceCode.trim();
       if (!code) return;
       try {
+        await ensureWorkspaceIndex();
         const groupDoc = await getDoc(doc(db, 'artifacts', appId, 'groups', code));
         if (!groupDoc.exists()) {
           alert('No group found for that code.');
@@ -1369,7 +1383,7 @@ export default function ScholarsCompass() {
         const alreadyMember = existingMembers.includes(userIdentifier);
         if (!alreadyMember) {
           const updatedMembers = [...existingMembers, userIdentifier];
-          await setDoc(doc(db, 'artifacts', appId, 'groups', code), { ...group, members: updatedMembers });
+          await setDoc(doc(db, 'artifacts', appId, 'groups', code), { ...group, members: updatedMembers, inviteCode: group.inviteCode || code });
           const newMeta: WorkspaceMeta = { ...group, members: updatedMembers, inviteCode: group.inviteCode || code, adminId: group.adminId };
           const merged = [...workspaces.filter(w => w.id !== code), newMeta];
           await persistWorkspaceIndex(merged);
@@ -1381,7 +1395,7 @@ export default function ScholarsCompass() {
         setJoinWorkspaceCode('');
       } catch (err) {
         console.error('Join workspace failed', err);
-        alert('Unable to join group. Please try again.');
+        alert(`Unable to join group. Details: ${(err as Error).message || err}`);
       }
   };
 
