@@ -1769,126 +1769,144 @@ export default function ScholarsCompass() {
               
               {/* Top Summary */}
               <div className="flex flex-col md:flex-row gap-6">
-                <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Day Rating</h3>
-                   <StarRating rating={getLogForDate(historyDate).rating} readOnly />
-                </div>
-                <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Events & Deadlines</h3>
-                   <div className="space-y-1">
-                     {getLogForDate(historyDate).events?.length === 0 ? (
-                       <p className="text-sm text-slate-400 italic">No events recorded.</p>
-                     ) : (
-                       getLogForDate(historyDate).events.map(ev => (
-                         <div key={ev.id} className="text-sm text-rose-700 font-medium flex items-center gap-2">
-                           <Bell size={12} /> {ev.title}
-                         </div>
-                       ))
-                     )}
-                   </div>
-                </div>
-                <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                   <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Distractions</h3>
-                   <div className="space-y-1">
-                     {Object.entries(getLogForDate(historyDate).antiGoals).map(([id, status]) => {
-                        const def = config.antiGoals.find(ag => ag.id === id);
-                        if (!def || status === 'pending') return null;
-                        return (
-                          <div key={id} className={`text-xs font-bold px-2 py-1 rounded w-fit ${status === 'conquered' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
-                            {def.title}: {status.toUpperCase()}
-                          </div>
-                        );
-                     })}
-                     {!Object.values(getLogForDate(historyDate).antiGoals).some(s => s !== 'pending') && (
-                       <p className="text-sm text-slate-400 italic">No distractions logged.</p>
-                     )}
-                   </div>
-                </div>
+                {shareOptions.includeRating && (
+                  <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Day Rating</h3>
+                     <StarRating rating={getLogForDate(historyDate).rating} readOnly />
+                  </div>
+                )}
+                {shareOptions.includeEvents && (
+                  <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Events & Deadlines</h3>
+                     <div className="space-y-1">
+                       {getLogForDate(historyDate).events?.length === 0 ? (
+                         <p className="text-sm text-slate-400 italic">No events recorded.</p>
+                       ) : (
+                         getLogForDate(historyDate).events.map(ev => (
+                           <div key={ev.id} className="text-sm text-rose-700 font-medium flex items-center gap-2">
+                             <Bell size={12} /> {ev.title}
+                           </div>
+                         ))
+                       )}
+                     </div>
+                  </div>
+                )}
+                {shareOptions.includeAntiGoals && (
+                  <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                     <h3 className="text-xs font-bold text-slate-400 uppercase mb-2">Distractions</h3>
+                     <div className="space-y-1">
+                       {Object.entries(getLogForDate(historyDate).antiGoals).map(([id, status]) => {
+                          const def = config.antiGoals.find(ag => ag.id === id);
+                          if (!def || status === 'pending') return null;
+                          return (
+                            <div key={id} className={`text-xs font-bold px-2 py-1 rounded w-fit ${status === 'conquered' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                              {def.title}: {status.toUpperCase()}
+                            </div>
+                          );
+                       })}
+                       {!Object.values(getLogForDate(historyDate).antiGoals).some(s => s !== 'pending') && (
+                         <p className="text-sm text-slate-400 italic">No distractions logged.</p>
+                       )}
+                     </div>
+                  </div>
+                )}
               </div>
 
               {/* Main Logs */}
-              <div className="grid md:grid-cols-2 gap-6">
-                {config.categories.map(cat => {
-                   const data = getLogForDate(historyDate).categories[cat.id];
-                   if (!data) return null;
-                   return (
-                     <div key={cat.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-                        <div className={`flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 text-${cat.color}-600`}>
-                           <Target size={18} />
-                           <h3 className="font-bold text-lg">{cat.title}</h3>
-                           <span className="ml-auto font-mono text-sm bg-slate-100 px-2 py-1 rounded text-slate-600">{data.hours} hrs</span>
-                        </div>
+              {shareOptions.includeCategories && (
+                <div className="grid md:grid-cols-2 gap-6">
+                  {config.categories.map(cat => {
+                     const data = getLogForDate(historyDate).categories[cat.id];
+                     if (!data) return null;
+                     return (
+                       <div key={cat.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                          <div className={`flex items-center gap-2 mb-4 pb-2 border-b border-slate-100 text-${cat.color}-600`}>
+                             <Target size={18} />
+                             <h3 className="font-bold text-lg">{cat.title}</h3>
+                             <span className="ml-auto font-mono text-sm bg-slate-100 px-2 py-1 rounded text-slate-600">{data.hours} hrs</span>
+                          </div>
 
-                        {/* Goals Snapshot */}
-                        <div className="mb-4">
-                           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Objectives</h4>
-                           <div className="space-y-2">
-                              {data.goals.map((g, i) => {
-                                const status = data.goalStatus[i] || 'pending';
-                                let color = 'bg-slate-100 text-slate-500 border-slate-200';
-                                if (status === 'progress') color = 'bg-amber-50 text-amber-700 border-amber-200';
-                                if (status === 'completed') color = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                                return (
-                                  <div key={i} className={`text-sm p-2 rounded border ${color} flex justify-between`}>
-                                    <span>{g}</span>
-                                    <span className="text-[10px] uppercase font-bold self-center">{status}</span>
-                                  </div>
-                                );
-                              })}
-                              {data.goals.length === 0 && <p className="text-sm text-slate-400 italic">No goals set.</p>}
-                           </div>
-                        </div>
+                          {/* Goals Snapshot */}
+                          <div className="mb-4">
+                             <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Objectives</h4>
+                             <div className="space-y-2">
+                                {data.goals.map((g, i) => {
+                                  const status = data.goalStatus[i] || 'pending';
+                                  let color = 'bg-slate-100 text-slate-500 border-slate-200';
+                                  if (status === 'progress') color = 'bg-amber-50 text-amber-700 border-amber-200';
+                                  if (status === 'completed') color = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                                  return (
+                                    <div key={i} className={`text-sm p-2 rounded border ${color} flex justify-between`}>
+                                      <span>{g}</span>
+                                      <span className="text-[10px] uppercase font-bold self-center">{status}</span>
+                                    </div>
+                                  );
+                                })}
+                                {data.goals.length === 0 && <p className="text-sm text-slate-400 italic">No goals set.</p>}
+                             </div>
+                          </div>
 
-                        {/* Notes Snapshot */}
-                        <div className="mb-4">
-                           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Field Notes</h4>
-                           <div className="bg-slate-50 p-3 rounded-lg text-sm text-slate-700 whitespace-pre-wrap border border-slate-100 min-h-[60px]">
-                              {data.notes || <span className="italic text-slate-400">No notes recorded.</span>}
-                           </div>
-                        </div>
+                          {/* Notes Snapshot */}
+                          {shareOptions.includeReflection && (
+                            <div className="mb-4">
+                               <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Field Notes</h4>
+                               <div className="bg-slate-50 p-3 rounded-lg text-sm text-slate-700 whitespace-pre-wrap border border-slate-100 min-h-[60px]">
+                                  {data.notes || <span className="italic text-slate-400">No notes recorded.</span>}
+                               </div>
+                            </div>
+                          )}
 
-                        {/* Attachments Snapshot */}
-                        <div>
-                           <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Attachments</h4>
-                           <div className="space-y-1">
-                              {data.attachments?.map((item, i) => {
-                                 const info = getAttachmentInfo(item);
-                                 return (
-                                   <a key={i} href={info.url} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 hover:underline truncate">
-                                     📎 {info.name}
-                                   </a>
-                                 )
-                              })}
-                              {(!data.attachments || data.attachments.length === 0) && <p className="text-sm text-slate-400 italic">No files.</p>}
-                           </div>
-                        </div>
-                     </div>
-                   );
-                })}
-              </div>
+                          {/* Attachments Snapshot */}
+                          {shareOptions.includeAttachments && (
+                            <div>
+                               <h4 className="text-xs font-bold text-slate-400 uppercase mb-2">Attachments</h4>
+                               <div className="space-y-1">
+                                  {data.attachments?.map((item, i) => {
+                                     const info = getAttachmentInfo(item);
+                                     return (
+                                       <a key={i} href={info.url} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 hover:underline truncate">
+                                         📎 {info.name}
+                                       </a>
+                                     )
+                                  })}
+                                  {(!data.attachments || data.attachments.length === 0) && <p className="text-sm text-slate-400 italic">No files.</p>}
+                               </div>
+                            </div>
+                          )}
+                       </div>
+                     );
+                  })}
+                </div>
+              )}
 
               {/* Nightly Reflection */}
-              <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-xl">
-                 <h3 className="text-indigo-900 font-serif font-bold text-lg mb-3 flex items-center gap-2">
-                    <Moon size={20} /> Nightly Reflection
-                 </h3>
-                 <div className="mb-4">
-                   <h4 className="text-xs font-bold text-indigo-400 uppercase mb-2">Lifestyle & Habits</h4>
-                   <div className="flex flex-wrap gap-2">
-                     {config.habits?.map(h => {
-                       const done = getLogForDate(historyDate).habits?.[h.id];
-                       return (
-                         <span key={h.id} className={`text-xs px-2 py-1 rounded border ${done ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'}`}>
-                           {h.title}: {done ? 'Done' : 'Missed'}
-                         </span>
-                       )
-                     })}
-                   </div>
-                 </div>
-                 <p className="text-indigo-800/80 whitespace-pre-wrap leading-relaxed">
-                    {getLogForDate(historyDate).reflection || "No reflection recorded for this day."}
-                 </p>
-              </div>
+              {(shareOptions.includeHabits || shareOptions.includeReflection) && (
+                <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-xl">
+                   <h3 className="text-indigo-900 font-serif font-bold text-lg mb-3 flex items-center gap-2">
+                      <Moon size={20} /> Nightly Reflection
+                   </h3>
+                   {shareOptions.includeHabits && (
+                     <div className="mb-4">
+                       <h4 className="text-xs font-bold text-indigo-400 uppercase mb-2">Lifestyle & Habits</h4>
+                       <div className="flex flex-wrap gap-2">
+                         {config.habits?.map(h => {
+                           const done = getLogForDate(historyDate).habits?.[h.id];
+                           return (
+                             <span key={h.id} className={`text-xs px-2 py-1 rounded border ${done ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-rose-100 text-rose-700 border-rose-200'}`}>
+                               {h.title}: {done ? 'Done' : 'Missed'}
+                             </span>
+                           )
+                         })}
+                       </div>
+                     </div>
+                   )}
+                   {shareOptions.includeReflection && (
+                     <p className="text-indigo-800/80 whitespace-pre-wrap leading-relaxed">
+                        {getLogForDate(historyDate).reflection || "No reflection recorded for this day."}
+                     </p>
+                   )}
+                </div>
+              )}
 
             </div>
           </div>
