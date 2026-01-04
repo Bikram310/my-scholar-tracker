@@ -2145,7 +2145,7 @@ export default function ScholarsCompass() {
         {view === 'calendar' && (
           <div className="animate-fade-in space-y-6">
             <div className="flex flex-col md:flex-row gap-6">
-              <div ref={calendarCardRef} className="flex-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <div className="flex-1 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
                   <h2 className="font-serif text-xl font-bold text-slate-900">
                     {calDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
