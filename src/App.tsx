@@ -695,6 +695,17 @@ export default function ScholarsCompass() {
     return dataUrl;
   }, [cloneWithComputedStyles]);
 
+  const triggerDownload = useCallback((fileName: string, dataUrl: string) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = fileName;
+    link.style.position = 'fixed';
+    link.style.top = '-1000px';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, []);
+
   const buildSnapshotText = useCallback((date: string, options: SnapshotShareOptions) => {
     const log = getLogForDate(date);
     const lines: string[] = [`Scholar's Compass — Daily Snapshot`, date];
@@ -813,22 +824,9 @@ export default function ScholarsCompass() {
     setCapturingSnapshot(true);
     try {
       const dataUrl = await renderElementToJpeg(historySnapshotRef.current);
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
       const fileName = `scholar-snapshot-${targetDate}.jpg`;
-      const file = new File([blob], fileName, { type: 'image/jpeg' });
-
-      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Scholar Snapshot', text: `Daily snapshot for ${targetDate}` });
-        showShareMessage('Snapshot shared as JPG.');
-        return;
-      }
-
-      const link = document.createElement('a');
-      link.href = dataUrl;
-      link.download = fileName;
-      link.click();
-      showShareMessage('Snapshot downloaded as JPG.');
+      triggerDownload(fileName, dataUrl);
+      showShareMessage('Snapshot saved as JPG.');
     } catch (err) {
       console.error('Snapshot JPG failed', err);
       showShareMessage('Unable to capture snapshot JPG.');
@@ -836,7 +834,7 @@ export default function ScholarsCompass() {
       setCapturingSnapshot(false);
       setPendingSnapshotDate(null);
     }
-  }, [renderElementToJpeg, showShareMessage]);
+  }, [renderElementToJpeg, showShareMessage, triggerDownload]);
 
   const shareSnapshotAsImage = useCallback((date: string) => {
     if (!date) return;
