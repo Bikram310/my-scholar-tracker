@@ -535,6 +535,8 @@ export default function ScholarsCompass() {
 
   const generateInviteCode = () => `grp_${Math.random().toString(36).slice(2, 6)}${Date.now().toString().slice(-4)}`;
 
+  const userIdentifier = useMemo(() => user?.email || user?.uid || 'guest', [user]);
+
   // --- Workspace Index ---
   useEffect(() => {
     if (!user || user.isAnonymous || !appId) return;
@@ -546,10 +548,10 @@ export default function ScholarsCompass() {
           ...w,
           adminId: w.adminId || user.uid,
           inviteCode: w.inviteCode || w.id
-        })));
+        })).filter((w: WorkspaceMeta) => (w.members || []).includes(userIdentifier) || w.adminId === user.uid));
       }
     }).catch(err => console.error('Workspace index fetch error', err));
-  }, [user]);
+  }, [user, userIdentifier]);
 
   // --- Data Fetching per Workspace ---
   useEffect(() => {
@@ -557,6 +559,11 @@ export default function ScholarsCompass() {
     setDataLoading(true);
 
     const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
+    if (workspaceMode.type === 'group' && !meta) {
+      setWorkspaceMode({ type: 'personal' });
+      setDataLoading(false);
+      return;
+    }
     const dataOwner = meta?.adminId || user.uid;
     const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     const configRef = doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'config', 'main');
@@ -1307,7 +1314,7 @@ export default function ScholarsCompass() {
       const name = newWorkspaceName.trim();
       if (!name) return;
       const id = generateInviteCode();
-      const members = [user.email || 'You', ...newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean)];
+      const members = [userIdentifier, ...newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean)];
       const newMeta: WorkspaceMeta = { id, name, members, adminId: user.uid, inviteCode: id };
       const updated = [...workspaces, newMeta];
       await persistWorkspaceIndex(updated);
@@ -1328,6 +1335,7 @@ export default function ScholarsCompass() {
       } else if (workspaces.some(w => w.id === id)) {
         setWorkspaceMode({ type: 'group', id });
       } else {
+        alert("You are not a member of this group.");
         setWorkspaceMode({ type: 'personal' });
       }
       setView('dashboard');
@@ -1345,9 +1353,9 @@ export default function ScholarsCompass() {
         }
         const group = groupDoc.data() as WorkspaceMeta;
         const existingMembers = group.members || [];
-        const alreadyMember = existingMembers.includes(user.email || user.uid);
+        const alreadyMember = existingMembers.includes(userIdentifier);
         if (!alreadyMember) {
-          const updatedMembers = [...existingMembers, user.email || user.uid];
+          const updatedMembers = [...existingMembers, userIdentifier];
           await setDoc(doc(db, 'artifacts', appId, 'groups', code), { ...group, members: updatedMembers });
           const newMeta: WorkspaceMeta = { ...group, members: updatedMembers, inviteCode: group.inviteCode || code, adminId: group.adminId };
           const merged = [...workspaces.filter(w => w.id !== code), newMeta];
