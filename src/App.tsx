@@ -1245,6 +1245,11 @@ export default function ScholarsCompass() {
       saveConfig({ ...config, antiGoals: [...config.antiGoals, { id, title: 'New Anti-Goal' }]});
   };
 
+  const snoozeTrackNotice = () => {
+      localStorage.setItem(TRACK_NOTICE_KEY, Date.now().toString());
+      setShowTrackNotice(false);
+  };
+
   const acknowledgeTrackNotice = () => {
       setShowTrackNotice(false);
       localStorage.setItem(TRACK_NOTICE_KEY, Date.now().toString());
@@ -2017,7 +2022,7 @@ export default function ScholarsCompass() {
               </p>
               <div className="mt-4 flex gap-2 justify-end">
                 <button
-                  onClick={() => setShowTrackNotice(false)}
+                  onClick={snoozeTrackNotice}
                   className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
                 >
                   Remind me later
