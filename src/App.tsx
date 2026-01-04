@@ -528,6 +528,8 @@ export default function ScholarsCompass() {
     setLogs([]);
     setTodayLog(null);
     setGoogleAccessToken(null);
+    setWorkspaces([]);
+    setWorkspaceMode({ type: 'personal' });
     localStorage.removeItem('g_drive_token');
     localStorage.removeItem('g_drive_token_expiry');
     sessionStorage.removeItem('setup_hint_shown');
@@ -549,6 +551,8 @@ export default function ScholarsCompass() {
           adminId: w.adminId || user.uid,
           inviteCode: w.inviteCode || w.id
         })).filter((w: WorkspaceMeta) => (w.members || []).includes(userIdentifier) || w.adminId === user.uid));
+      } else {
+        setWorkspaces([]);
       }
     }).catch(err => console.error('Workspace index fetch error', err));
   }, [user, userIdentifier]);
@@ -635,6 +639,13 @@ export default function ScholarsCompass() {
 
     return () => unsubscribe();
   }, [user, workspaceMode, workspaces]);
+
+  // Reset workspace state on user change
+  useEffect(() => {
+    setWorkspaceMode({ type: 'personal' });
+    setWorkspaces([]);
+    setJoinWorkspaceCode('');
+  }, [userIdentifier]);
 
   const syncTodayLogToIST = useCallback(() => {
     const newDate = getTodayStr();
