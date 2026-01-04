@@ -155,6 +155,8 @@ interface WorkspaceMeta {
   id: string;
   name: string;
   members: string[];
+  adminId: string;
+  inviteCode: string;
 }
 
 interface ScholarApp {
@@ -373,6 +375,7 @@ export default function ScholarsCompass() {
   const [workspaces, setWorkspaces] = useState<WorkspaceMeta[]>([]);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [newWorkspaceMembers, setNewWorkspaceMembers] = useState('');
+  const [joinWorkspaceCode, setJoinWorkspaceCode] = useState('');
   
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
@@ -536,7 +539,11 @@ export default function ScholarsCompass() {
     getDoc(idxRef).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
-        setWorkspaces(data.items || []);
+        setWorkspaces((data.items || []).map((w: any) => ({
+          ...w,
+          adminId: w.adminId || user.uid,
+          inviteCode: w.inviteCode || w.id
+        })));
       }
     }).catch(err => console.error('Workspace index fetch error', err));
   }, [user]);
@@ -546,8 +553,10 @@ export default function ScholarsCompass() {
     if (!user || user.isAnonymous || !appId) return;
     setDataLoading(true);
 
+    const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
+    const dataOwner = meta?.adminId || user.uid;
     const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
-    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'config', 'main');
+    const configRef = doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'config', 'main');
     getDoc(configRef).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
@@ -583,7 +592,7 @@ export default function ScholarsCompass() {
       setDataLoading(false); 
     });
 
-    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'daily_logs'));
+    const q = query(collection(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'daily_logs'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs: DailyLog[] = [];
       snapshot.forEach((doc) => fetchedLogs.push(doc.data() as DailyLog));
@@ -615,7 +624,7 @@ export default function ScholarsCompass() {
     });
 
     return () => unsubscribe();
-  }, [user, workspaceMode]);
+  }, [user, workspaceMode, workspaces]);
 
   const syncTodayLogToIST = useCallback(() => {
     const newDate = getTodayStr();
@@ -952,18 +961,22 @@ export default function ScholarsCompass() {
 
   const saveLog = async (logToSave: DailyLog) => {
     if (!user) return;
+    const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
+    const dataOwner = meta?.adminId || user.uid;
     const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'daily_logs', logToSave.date), logToSave);
+      await setDoc(doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'daily_logs', logToSave.date), logToSave);
       if (logToSave.date === getTodayStr()) setTodayLog(logToSave);
     } catch (e) { console.error(e); }
   };
 
   const saveConfig = async (newConfig: UserConfig) => {
     if (!user) return;
+    const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
+    const dataOwner = meta?.adminId || user.uid;
     const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     setConfig(newConfig);
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'config', 'main'), newConfig);
+    await setDoc(doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'config', 'main'), newConfig);
   };
 
   // Email reminder scheduling (best effort - tab must stay open)
@@ -1291,8 +1304,8 @@ export default function ScholarsCompass() {
       const name = newWorkspaceName.trim();
       if (!name) return;
       const id = `group_${Date.now()}`;
-      const members = newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean);
-      const newMeta: WorkspaceMeta = { id, name, members };
+      const members = [user.email || 'You', ...newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean)];
+      const newMeta: WorkspaceMeta = { id, name, members, adminId: user.uid, inviteCode: id };
       const updated = [...workspaces, newMeta];
       await persistWorkspaceIndex(updated);
       
@@ -1300,6 +1313,7 @@ export default function ScholarsCompass() {
       const seededHabits = defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
       const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps };
       await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', id, 'config', 'main'), initialConfig);
+      await setDoc(doc(db, 'artifacts', appId, 'groups', id), { id, name, members, adminId: user.uid, inviteCode: id });
       setWorkspaceMode({ type: 'group', id });
       setNewWorkspaceName('');
       setNewWorkspaceMembers('');
@@ -1314,6 +1328,36 @@ export default function ScholarsCompass() {
         setWorkspaceMode({ type: 'personal' });
       }
       setView('dashboard');
+  };
+
+  const joinWorkspace = async () => {
+      if (!user) return;
+      const code = joinWorkspaceCode.trim();
+      if (!code) return;
+      try {
+        const groupDoc = await getDoc(doc(db, 'artifacts', appId, 'groups', code));
+        if (!groupDoc.exists()) {
+          alert('No group found for that code.');
+          return;
+        }
+        const group = groupDoc.data() as WorkspaceMeta;
+        const alreadyMember = group.members.includes(user.email || user.uid);
+        if (!alreadyMember) {
+          const updatedMembers = [...group.members, user.email || user.uid];
+          await setDoc(doc(db, 'artifacts', appId, 'groups', code), { ...group, members: updatedMembers });
+          const newMeta: WorkspaceMeta = { ...group, members: updatedMembers };
+          const merged = [...workspaces.filter(w => w.id !== code), newMeta];
+          await persistWorkspaceIndex(merged);
+        } else {
+          const merged = [...workspaces.filter(w => w.id !== code), group];
+          await persistWorkspaceIndex(merged);
+        }
+        setWorkspaceMode({ type: 'group', id: code });
+        setJoinWorkspaceCode('');
+      } catch (err) {
+        console.error('Join workspace failed', err);
+        alert('Unable to join group. Please try again.');
+      }
   };
 
   const snoozeTrackNotice = () => {
