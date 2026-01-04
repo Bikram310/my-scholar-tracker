@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
@@ -63,7 +63,8 @@ import {
   Copy,
   Grid,
   MessageCircle,
-  Mail
+  Mail,
+  Share2
 } from 'lucide-react';
 
 // --- Firebase Configuration ---
@@ -156,6 +157,16 @@ interface ScholarApp {
   emoji: string;
 }
 
+interface SnapshotShareOptions {
+  includeRating: boolean;
+  includeEvents: boolean;
+  includeCategories: boolean;
+  includeAntiGoals: boolean;
+  includeHabits: boolean;
+  includeReflection: boolean;
+  includeAttachments: boolean;
+}
+
 // --- Constants & Defaults ---
 const COLORS = ['indigo', 'emerald', 'amber', 'rose', 'sky', 'violet', 'orange', 'red', 'teal', 'slate'];
 const TRACK_NOTICE_KEY = 'track_notice_ack';
@@ -202,6 +213,16 @@ const presetEntertainmentApps: ScholarApp[] = [
   { id: 'preset_spotify', name: 'Spotify', url: 'https://open.spotify.com/', accent: 'emerald', emoji: '🎧' },
   { id: 'preset_apple_tv', name: 'Apple TV+', url: 'https://tv.apple.com/', accent: 'slate', emoji: '📺' },
 ];
+
+const defaultShareOptions: SnapshotShareOptions = {
+  includeRating: true,
+  includeEvents: true,
+  includeCategories: true,
+  includeAntiGoals: true,
+  includeHabits: true,
+  includeReflection: true,
+  includeAttachments: false
+};
 
 const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
 const getISTDateStr = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()); // YYYY-MM-DD
@@ -337,6 +358,9 @@ export default function ScholarsCompass() {
   const [istHour, setIstHour] = useState(getISTTime().getHours());
   const [istMinutes, setIstMinutes] = useState(getISTTime().getMinutes());
   const [showTrackNotice, setShowTrackNotice] = useState(false);
+  const [shareOptions, setShareOptions] = useState<SnapshotShareOptions>(defaultShareOptions);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+  const shareStatusTimer = useRef<number | null>(null);
   
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
@@ -383,6 +407,14 @@ export default function ScholarsCompass() {
       setIstMinutes(ist.getMinutes());
     }, 60000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (shareStatusTimer.current) {
+        window.clearTimeout(shareStatusTimer.current);
+      }
+    };
   }, []);
 
   // Celebration keyframes
@@ -581,12 +613,12 @@ export default function ScholarsCompass() {
 
   // --- Core Logic ---
 
-  const visibleHabitsForDate = (date: string) => {
+  const visibleHabitsForDate = useCallback((date: string) => {
     return (config.habits || []).filter(h => {
       const startDate = h.createdAt || getTodayStr();
       return date >= startDate;
     });
-  };
+  }, [config.habits]);
 
   const createEmptyLog = (date: string): DailyLog => ({
     date,
@@ -598,9 +630,130 @@ export default function ScholarsCompass() {
     habits: {}
   });
 
-  const getLogForDate = (date: string) => {
+  const getLogForDate = useCallback((date: string) => {
     return logs.find(l => l.date === date) || createEmptyLog(date);
-  };
+  }, [logs]);
+
+  const showShareMessage = useCallback((msg: string) => {
+    if (shareStatusTimer.current) {
+      window.clearTimeout(shareStatusTimer.current);
+    }
+    setShareStatus(msg);
+    shareStatusTimer.current = window.setTimeout(() => setShareStatus(null), 4000);
+  }, []);
+
+  const buildSnapshotText = useCallback((date: string, options: SnapshotShareOptions) => {
+    const log = getLogForDate(date);
+    const lines: string[] = [`Scholar's Compass — Daily Snapshot`, date];
+
+    if (options.includeRating) {
+      lines.push(`Day rating: ${log.rating || 0}/5`);
+    }
+
+    if (options.includeEvents && log.events?.length) {
+      lines.push('Events & deadlines:');
+      log.events.forEach(ev => lines.push(`• ${ev.title}${ev.completed ? ' (done)' : ''}`));
+    }
+
+    if (options.includeCategories) {
+      const categoryLines: string[] = [];
+      config.categories.forEach(cat => {
+        const data = log.categories[cat.id];
+        if (!data) return;
+        const goals = (data.goals || []).map((goal, idx) => `${goal} (${data.goalStatus?.[idx] || 'pending'})`);
+        const pieces = [
+          data.hours ? `${data.hours}h` : '',
+          goals.length ? `Goals: ${goals.join('; ')}` : '',
+          data.notes ? `Notes: ${data.notes}` : ''
+        ].filter(Boolean);
+        if (pieces.length) {
+          categoryLines.push(`${cat.title}: ${pieces.join(' | ')}`);
+        }
+      });
+      if (categoryLines.length) {
+        lines.push('Focus areas:');
+        categoryLines.forEach(l => lines.push(`• ${l}`));
+      }
+    }
+
+    if (options.includeAntiGoals) {
+      const antiGoalEntries = Object.entries(log.antiGoals || {}).filter(([, status]) => status !== 'pending');
+      if (antiGoalEntries.length) {
+        lines.push('Distraction log:');
+        antiGoalEntries.forEach(([id, status]) => {
+          const def = config.antiGoals.find(ag => ag.id === id);
+          if (!def) return;
+          lines.push(`• ${def.title}: ${status}`);
+        });
+      }
+    }
+
+    if (options.includeHabits) {
+      const habitsForDay = visibleHabitsForDate(date);
+      if (habitsForDay.length) {
+        lines.push('Lifestyle habits:');
+        habitsForDay.forEach(habit => {
+          const done = log.habits?.[habit.id];
+          lines.push(`• ${habit.title}: ${done ? 'Done' : 'Missed'}`);
+        });
+      }
+    }
+
+    if (options.includeAttachments) {
+      const attachments: string[] = [];
+      Object.entries(log.categories || {}).forEach(([catId, data]) => {
+        (data.attachments || []).forEach(item => {
+          const info = getAttachmentInfo(item);
+          const catDef = config.categories.find(c => c.id === catId);
+          attachments.push(`${catDef?.title || 'Attachment'}: ${info.name} (${info.url})`);
+        });
+      });
+      if (attachments.length) {
+        lines.push('Attachments:');
+        attachments.forEach(l => lines.push(`• ${l}`));
+      }
+    }
+
+    if (options.includeReflection && log.reflection) {
+      lines.push('Reflection:');
+      lines.push(log.reflection);
+    }
+
+    return lines.join('\n');
+  }, [config, getLogForDate, visibleHabitsForDate]);
+
+  const shareSnapshot = useCallback(async (date: string) => {
+    if (!date) return;
+    const snapshot = buildSnapshotText(date, shareOptions);
+    const hasContent = snapshot.trim().split('\n').length > 2;
+    if (!hasContent) {
+      showShareMessage('Nothing to share for this day yet.');
+      return;
+    }
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: `Scholar's Compass — ${date}`, text: snapshot });
+        showShareMessage('Shared via your device.');
+        return;
+      }
+    } catch (err) {
+      console.error('Native share failed', err);
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(snapshot);
+        showShareMessage('Snapshot copied to clipboard.');
+        return;
+      } catch (err) {
+        console.error('Clipboard share failed', err);
+      }
+    }
+
+    showShareMessage('Snapshot ready. Copy and share manually from the dialog.');
+    alert(snapshot);
+  }, [buildSnapshotText, shareOptions, showShareMessage]);
 
   const cloneYesterdayIntoToday = () => {
     if (!todayLog) return;
@@ -1491,12 +1644,20 @@ export default function ScholarsCompass() {
                   <p className="text-sm text-slate-500 font-mono">{historyDate}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setHistoryDate(null)}
-                className="p-2 hover:bg-slate-100 rounded-full transition-colors"
-              >
-                <X size={24} className="text-slate-400" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => historyDate && shareSnapshot(historyDate)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
+                >
+                  <Share2 size={16} /> Share snapshot
+                </button>
+                <button 
+                  onClick={() => setHistoryDate(null)}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X size={24} className="text-slate-400" />
+                </button>
+              </div>
             </div>
 
             {/* Content */}
@@ -1907,6 +2068,50 @@ export default function ScholarsCompass() {
                    {selectedDate === getTodayStr() && <div className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded font-bold">Today</div>}
                </div>
                
+               {/* Snapshot Sharing */}
+               <div className="mb-6 border border-slate-200 rounded-lg p-3 bg-slate-50">
+                 <div className="flex items-center justify-between gap-3 mb-3">
+                   <div>
+                     <div className="text-xs font-bold text-slate-700 uppercase flex items-center gap-2">
+                       <Share2 size={12} /> Share daily snapshot
+                     </div>
+                     <p className="text-[11px] text-slate-500">Share the same view you open with a calendar double-tap. Toggle sections to exclude (e.g., Anti-Goals) before sending.</p>
+                   </div>
+                   <button 
+                     onClick={() => shareSnapshot(selectedDate)}
+                     className="flex items-center gap-2 text-[11px] px-3 py-2 bg-indigo-600 text-white font-bold rounded hover:bg-indigo-700 transition-colors"
+                   >
+                     <Share2 size={14} /> Share
+                   </button>
+                 </div>
+                 <div className="grid grid-cols-2 gap-2">
+                   {([
+                     ['includeRating', 'Rating & highlights'],
+                     ['includeEvents', 'Events & deadlines'],
+                     ['includeCategories', 'Goals & hours'],
+                     ['includeAntiGoals', 'Anti-Goals / distractions'],
+                     ['includeHabits', 'Lifestyle habits'],
+                     ['includeReflection', 'Reflection'],
+                     ['includeAttachments', 'Attachments & links']
+                   ] as [keyof SnapshotShareOptions, string][]).map(([key, label]) => (
+                     <label key={key} className="flex items-center gap-2 text-[11px] text-slate-600">
+                       <input 
+                         type="checkbox" 
+                         checked={shareOptions[key]} 
+                         onChange={() => setShareOptions(prev => ({ ...prev, [key]: !prev[key] }))} 
+                         className="accent-indigo-600"
+                       />
+                       <span>{label}</span>
+                     </label>
+                   ))}
+                 </div>
+                 {shareStatus && (
+                   <div className="mt-3 text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-2 rounded">
+                     {shareStatus}
+                   </div>
+                 )}
+               </div>
+
                {/* Bulk Selection Controls */}
                <div className="mb-6 border border-dashed border-slate-200 rounded-lg p-3 bg-slate-50">
                  <div className="flex items-center justify-between mb-2">
