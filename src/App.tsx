@@ -149,16 +149,6 @@ interface UserConfig {
   entertainmentApps?: ScholarApp[];
 }
 
-type WorkspaceMode = { type: 'personal' } | { type: 'group'; id: string };
-
-interface WorkspaceMeta {
-  id: string;
-  name: string;
-  members: string[];
-  adminId: string;
-  inviteCode: string;
-}
-
 interface ScholarApp {
   id: string;
   name: string;
@@ -371,13 +361,7 @@ export default function ScholarsCompass() {
   const [shareOptions, setShareOptions] = useState<SnapshotShareOptions>(defaultShareOptions);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const shareStatusTimer = useRef<number | null>(null);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>({ type: 'personal' });
-  const [workspaces, setWorkspaces] = useState<WorkspaceMeta[]>([]);
-  const [newWorkspaceName, setNewWorkspaceName] = useState('');
-  const [newWorkspaceMembers, setNewWorkspaceMembers] = useState('');
-  const [joinWorkspaceCode, setJoinWorkspaceCode] = useState('');
-  const [copyStatus, setCopyStatus] = useState<string | null>(null);
-
+  
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
 
@@ -528,51 +512,16 @@ export default function ScholarsCompass() {
     setLogs([]);
     setTodayLog(null);
     setGoogleAccessToken(null);
-    setWorkspaces([]);
-    setWorkspaceMode({ type: 'personal' });
     localStorage.removeItem('g_drive_token');
     localStorage.removeItem('g_drive_token_expiry');
     sessionStorage.removeItem('setup_hint_shown');
   };
 
-  const generateInviteCode = () => `grp_${Math.random().toString(36).slice(2, 6)}${Date.now().toString().slice(-4)}`;
-
-  const normalizeIdentity = (value?: string | null) => (value || '').trim().toLowerCase();
-  const userIdentifier = useMemo(() => normalizeIdentity(user?.email || user?.uid || 'guest'), [user]);
-
-  // --- Workspace Index ---
+  // --- Data Fetching ---
   useEffect(() => {
     if (!user || user.isAnonymous || !appId) return;
-    const idxRef = doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index');
-    getDoc(idxRef).then(snap => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setWorkspaces((data.items || []).map((w: any) => ({
-          ...w,
-          adminId: w.adminId || user.uid,
-          inviteCode: w.inviteCode || w.id,
-          members: (w.members || []).map((m: string) => normalizeIdentity(m))
-        })).filter((w: WorkspaceMeta) => (w.members || []).includes(userIdentifier) || w.adminId === user.uid));
-      } else {
-        setWorkspaces([]);
-      }
-    }).catch(err => console.error('Workspace index fetch error', err));
-  }, [user, userIdentifier]);
 
-  // --- Data Fetching per Workspace ---
-  useEffect(() => {
-    if (!user || user.isAnonymous || !appId) return;
-    setDataLoading(true);
-
-    const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
-    if (workspaceMode.type === 'group' && !meta) {
-      setWorkspaceMode({ type: 'personal' });
-      setDataLoading(false);
-      return;
-    }
-    const dataOwner = meta?.adminId || user.uid;
-    const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
-    const configRef = doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'config', 'main');
+    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
     getDoc(configRef).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
@@ -608,7 +557,7 @@ export default function ScholarsCompass() {
       setDataLoading(false); 
     });
 
-    const q = query(collection(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'daily_logs'));
+    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'daily_logs'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs: DailyLog[] = [];
       snapshot.forEach((doc) => fetchedLogs.push(doc.data() as DailyLog));
@@ -631,8 +580,6 @@ export default function ScholarsCompass() {
         });
         if (fetchedLogs.length === 0) setView('morning');
       }
-      setSelectedDate(todayStr);
-      setCalDate(new Date(todayStr));
       setDataLoading(false);
     }, (error) => {
       console.error("Data Listen Error:", error);
@@ -640,14 +587,7 @@ export default function ScholarsCompass() {
     });
 
     return () => unsubscribe();
-  }, [user, workspaceMode, workspaces]);
-
-  // Reset workspace state on user change
-  useEffect(() => {
-    setWorkspaceMode({ type: 'personal' });
-    setWorkspaces([]);
-    setJoinWorkspaceCode('');
-  }, [userIdentifier]);
+  }, [user]);
 
   const syncTodayLogToIST = useCallback(() => {
     const newDate = getTodayStr();
@@ -977,29 +917,18 @@ export default function ScholarsCompass() {
     return mergedLog;
   }, [todayLog, config]);
 
-  const currentWorkspaceLabel = useMemo(() => {
-    if (workspaceMode.type === 'personal') return 'Personal';
-    return workspaces.find(w => w.id === workspaceMode.id)?.name || 'Group';
-  }, [workspaceMode, workspaces]);
-
   const saveLog = async (logToSave: DailyLog) => {
     if (!user) return;
-    const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
-    const dataOwner = meta?.adminId || user.uid;
-    const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'daily_logs', logToSave.date), logToSave);
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logToSave.date), logToSave);
       if (logToSave.date === getTodayStr()) setTodayLog(logToSave);
     } catch (e) { console.error(e); }
   };
 
   const saveConfig = async (newConfig: UserConfig) => {
     if (!user) return;
-    const meta = workspaceMode.type === 'group' ? workspaces.find(w => w.id === workspaceMode.id) : undefined;
-    const dataOwner = meta?.adminId || user.uid;
-    const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     setConfig(newConfig);
-    await setDoc(doc(db, 'artifacts', appId, 'users', dataOwner, ...workspaceSegments, 'config', 'main'), newConfig);
+    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main'), newConfig);
   };
 
   // Email reminder scheduling (best effort - tab must stay open)
@@ -1314,89 +1243,6 @@ export default function ScholarsCompass() {
   const addAntiGoal = () => {
       const id = `ag_${Date.now()}`;
       saveConfig({ ...config, antiGoals: [...config.antiGoals, { id, title: 'New Anti-Goal' }]});
-  };
-
-  const persistWorkspaceIndex = useCallback(async (items: WorkspaceMeta[]) => {
-      if (!user) return;
-      setWorkspaces(items);
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index'), { items });
-  }, [user, appId]);
-
-  const ensureWorkspaceIndex = useCallback(async () => {
-      if (!user) return [];
-      const idxRef = doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index');
-      const snap = await getDoc(idxRef);
-      if (!snap.exists()) {
-        await setDoc(idxRef, { items: [] });
-        return [];
-      }
-      const data = snap.data();
-      return (data.items || []) as WorkspaceMeta[];
-  }, [user, appId]);
-
-  const addWorkspace = async () => {
-      if (!user) return;
-      const name = newWorkspaceName.trim();
-      if (!name) return;
-      const id = generateInviteCode();
-      const members = [userIdentifier, ...newWorkspaceMembers.split(',').map(m => normalizeIdentity(m)).filter(Boolean)];
-      const newMeta: WorkspaceMeta = { id, name, members, adminId: user.uid, inviteCode: id };
-      const updated = [...workspaces, newMeta];
-      await ensureWorkspaceIndex();
-      await persistWorkspaceIndex(updated);
-      
-      const todayStr = getTodayStr();
-      const seededHabits = defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
-      const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps };
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', id, 'config', 'main'), initialConfig);
-      await setDoc(doc(db, 'artifacts', appId, 'groups', id), { id, name, members, adminId: user.uid, inviteCode: id });
-      setWorkspaceMode({ type: 'group', id });
-      setNewWorkspaceName('');
-      setNewWorkspaceMembers('');
-  };
-
-  const switchWorkspace = (id: string) => {
-      if (id === 'personal') {
-        setWorkspaceMode({ type: 'personal' });
-      } else if (workspaces.some(w => w.id === id)) {
-        setWorkspaceMode({ type: 'group', id });
-      } else {
-        alert("You are not a member of this group.");
-        setWorkspaceMode({ type: 'personal' });
-      }
-      setView('dashboard');
-  };
-
-  const joinWorkspace = async () => {
-      if (!user) return;
-      const code = joinWorkspaceCode.trim();
-      if (!code) return;
-      try {
-        await ensureWorkspaceIndex();
-        const groupDoc = await getDoc(doc(db, 'artifacts', appId, 'groups', code));
-        if (!groupDoc.exists()) {
-          alert('No group found for that code.');
-          return;
-        }
-        const group = groupDoc.data() as WorkspaceMeta;
-        const existingMembers = (group.members || []).map(m => normalizeIdentity(m));
-        const alreadyMember = existingMembers.includes(userIdentifier);
-        if (!alreadyMember) {
-          const updatedMembers = [...existingMembers, userIdentifier];
-          await setDoc(doc(db, 'artifacts', appId, 'groups', code), { ...group, members: updatedMembers, inviteCode: group.inviteCode || code });
-          const newMeta: WorkspaceMeta = { ...group, members: updatedMembers, inviteCode: group.inviteCode || code, adminId: group.adminId };
-          const merged = [...workspaces.filter(w => w.id !== code), newMeta];
-          await persistWorkspaceIndex(merged);
-        } else {
-          const merged = [...workspaces.filter(w => w.id !== code), { ...group, inviteCode: group.inviteCode || code, adminId: group.adminId }];
-          await persistWorkspaceIndex(merged);
-        }
-        setWorkspaceMode({ type: 'group', id: code });
-        setJoinWorkspaceCode('');
-      } catch (err) {
-        console.error('Join workspace failed', err);
-        alert(`Unable to join group. Details: ${(err as Error).message || err}`);
-      }
   };
 
   const snoozeTrackNotice = () => {
@@ -2271,26 +2117,6 @@ export default function ScholarsCompass() {
                >
                  ?
                </button>
-               <div className="flex items-center gap-2 ml-4">
-                 <div className="text-[10px] uppercase font-bold text-slate-500">Workspace</div>
-                 <select 
-                   value={workspaceMode.type === 'personal' ? 'personal' : workspaceMode.id}
-                   onChange={(e) => switchWorkspace(e.target.value)}
-                   className="text-xs border border-slate-200 rounded px-2 py-1 bg-white"
-                 >
-                   <option value="personal">Personal</option>
-                   {workspaces.map(ws => (
-                     <option key={ws.id} value={ws.id}>{ws.name}</option>
-                   ))}
-                 </select>
-                 <button 
-                   onClick={() => setView('settings')}
-                   className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
-                   title="Add or edit groups in Setup"
-                 >
-                   Manage
-                 </button>
-               </div>
             </div>
           </div>
 
@@ -2980,88 +2806,11 @@ export default function ScholarsCompass() {
         {/* --- VIEW: SETTINGS --- */}
         {view === 'settings' && (
            <div className="animate-fade-in space-y-6">
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Workspaces & Groups</h2>
-              <p className="text-sm text-slate-600 mb-4">Switch between your personal workspace and collaborative groups. Each workspace keeps its own goals, habits, and distractions.</p>
-              <div className="flex flex-col md:flex-row gap-4 items-start">
-                <div className="flex-1 space-y-3">
-                  <div className="text-xs font-bold text-slate-500 uppercase">Existing workspaces</div>
-                  <div className="space-y-2">
-                    <div className={`p-3 rounded border ${workspaceMode.type === 'personal' ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-bold text-slate-800">Personal</div>
-                          <div className="text-[11px] text-slate-500">Solo mode</div>
-                        </div>
-                        <button onClick={() => switchWorkspace('personal')} className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100">Use</button>
-                      </div>
-                    </div>
-                    {workspaces.map(ws => (
-                      <div key={ws.id} className={`p-3 rounded border ${workspaceMode.type === 'group' && workspaceMode.id === ws.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-bold text-slate-800">{ws.name}</div>
-                            <div className="text-[11px] text-slate-500">Members: {ws.members.join(', ') || '—'}</div>
-                            <div className="text-[11px] text-indigo-600 font-mono mt-1">Invite code: {ws.inviteCode || ws.id}</div>
-                          </div>
-                          <button onClick={() => switchWorkspace(ws.id)} className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100">Use</button>
-                        </div>
-                        <button 
-                          onClick={() => { navigator.clipboard?.writeText(ws.inviteCode || ws.id); setCopyStatus(`Copied code for ${ws.name}`); setTimeout(() => setCopyStatus(null), 2000); }}
-                          className="mt-2 text-[11px] px-2 py-1 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                        >
-                          Copy invite code
-                        </button>
-                      </div>
-                    ))}
-                    {workspaces.length === 0 && <div className="text-[12px] text-slate-500 italic">No groups yet.</div>}
-                  </div>
-                </div>
-                <div className="w-full md:w-80">
-                  <div className="text-xs font-bold text-slate-500 uppercase mb-2">Create new group</div>
-                  <div className="space-y-2">
-                    <input 
-                      value={newWorkspaceName}
-                      onChange={(e) => setNewWorkspaceName(e.target.value)}
-                      placeholder="Group name"
-                      className="w-full text-sm p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
-                    />
-                    <textarea 
-                      value={newWorkspaceMembers}
-                      onChange={(e) => setNewWorkspaceMembers(e.target.value)}
-                      placeholder="Members (comma separated emails or names)"
-                      className="w-full text-sm p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
-                      rows={3}
-                    />
-                    <button 
-                      onClick={addWorkspace}
-                      className="w-full text-sm font-bold bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700 transition-colors"
-                    >
-                      Create & switch
-                    </button>
-                    <div className="text-xs font-bold text-slate-500 uppercase mt-4">Join group by code</div>
-                    <input 
-                      value={joinWorkspaceCode}
-                      onChange={(e) => setJoinWorkspaceCode(e.target.value)}
-                      placeholder="Enter invite code"
-                      className="w-full text-sm p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
-                    />
-                    <button 
-                      onClick={joinWorkspace}
-                      className="w-full text-sm font-bold bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700 transition-colors"
-                    >
-                      Join group
-                    </button>
-                    {copyStatus && <div className="text-[11px] text-emerald-600">{copyStatus}</div>}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-              <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
-              <div className="space-y-4 mb-6">
-                {config.categories.map((cat) => (
-                  <div key={cat.id} className="flex items-center gap-3">
+             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
+               <div className="space-y-4 mb-6">
+                 {config.categories.map((cat) => (
+                   <div key={cat.id} className="flex items-center gap-3">
                      <div className={`w-3 h-3 rounded-full bg-${cat.color}-500`}></div>
                      <input 
                        value={cat.title}
