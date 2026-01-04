@@ -149,6 +149,14 @@ interface UserConfig {
   entertainmentApps?: ScholarApp[];
 }
 
+type WorkspaceMode = { type: 'personal' } | { type: 'group'; id: string };
+
+interface WorkspaceMeta {
+  id: string;
+  name: string;
+  members: string[];
+}
+
 interface ScholarApp {
   id: string;
   name: string;
@@ -361,6 +369,10 @@ export default function ScholarsCompass() {
   const [shareOptions, setShareOptions] = useState<SnapshotShareOptions>(defaultShareOptions);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const shareStatusTimer = useRef<number | null>(null);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>({ type: 'personal' });
+  const [workspaces, setWorkspaces] = useState<WorkspaceMeta[]>([]);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceMembers, setNewWorkspaceMembers] = useState('');
   
   // File Upload State
   const [uploading, setUploading] = useState<string | null>(null);
@@ -517,11 +529,25 @@ export default function ScholarsCompass() {
     sessionStorage.removeItem('setup_hint_shown');
   };
 
-  // --- Data Fetching ---
+  // --- Workspace Index ---
   useEffect(() => {
     if (!user || user.isAnonymous || !appId) return;
+    const idxRef = doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index');
+    getDoc(idxRef).then(snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setWorkspaces(data.items || []);
+      }
+    }).catch(err => console.error('Workspace index fetch error', err));
+  }, [user]);
 
-    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main');
+  // --- Data Fetching per Workspace ---
+  useEffect(() => {
+    if (!user || user.isAnonymous || !appId) return;
+    setDataLoading(true);
+
+    const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
+    const configRef = doc(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'config', 'main');
     getDoc(configRef).then(snap => {
       if (snap.exists()) {
         const data = snap.data();
@@ -557,7 +583,7 @@ export default function ScholarsCompass() {
       setDataLoading(false); 
     });
 
-    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, 'daily_logs'));
+    const q = query(collection(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'daily_logs'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedLogs: DailyLog[] = [];
       snapshot.forEach((doc) => fetchedLogs.push(doc.data() as DailyLog));
@@ -580,6 +606,8 @@ export default function ScholarsCompass() {
         });
         if (fetchedLogs.length === 0) setView('morning');
       }
+      setSelectedDate(todayStr);
+      setCalDate(new Date(todayStr));
       setDataLoading(false);
     }, (error) => {
       console.error("Data Listen Error:", error);
@@ -587,7 +615,7 @@ export default function ScholarsCompass() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, workspaceMode]);
 
   const syncTodayLogToIST = useCallback(() => {
     const newDate = getTodayStr();
@@ -917,18 +945,25 @@ export default function ScholarsCompass() {
     return mergedLog;
   }, [todayLog, config]);
 
+  const currentWorkspaceLabel = useMemo(() => {
+    if (workspaceMode.type === 'personal') return 'Personal';
+    return workspaces.find(w => w.id === workspaceMode.id)?.name || 'Group';
+  }, [workspaceMode, workspaces]);
+
   const saveLog = async (logToSave: DailyLog) => {
     if (!user) return;
+    const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logToSave.date), logToSave);
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'daily_logs', logToSave.date), logToSave);
       if (logToSave.date === getTodayStr()) setTodayLog(logToSave);
     } catch (e) { console.error(e); }
   };
 
   const saveConfig = async (newConfig: UserConfig) => {
     if (!user) return;
+    const workspaceSegments = workspaceMode.type === 'personal' ? [] : ['workspaces', workspaceMode.id];
     setConfig(newConfig);
-    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'config', 'main'), newConfig);
+    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, ...workspaceSegments, 'config', 'main'), newConfig);
   };
 
   // Email reminder scheduling (best effort - tab must stay open)
@@ -1243,6 +1278,42 @@ export default function ScholarsCompass() {
   const addAntiGoal = () => {
       const id = `ag_${Date.now()}`;
       saveConfig({ ...config, antiGoals: [...config.antiGoals, { id, title: 'New Anti-Goal' }]});
+  };
+
+  const persistWorkspaceIndex = useCallback(async (items: WorkspaceMeta[]) => {
+      if (!user) return;
+      setWorkspaces(items);
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', 'index'), { items });
+  }, [user, appId]);
+
+  const addWorkspace = async () => {
+      if (!user) return;
+      const name = newWorkspaceName.trim();
+      if (!name) return;
+      const id = `group_${Date.now()}`;
+      const members = newWorkspaceMembers.split(',').map(m => m.trim()).filter(Boolean);
+      const newMeta: WorkspaceMeta = { id, name, members };
+      const updated = [...workspaces, newMeta];
+      await persistWorkspaceIndex(updated);
+      
+      const todayStr = getTodayStr();
+      const seededHabits = defaultHabits.map(h => ({ ...h, createdAt: todayStr }));
+      const initialConfig: UserConfig = { categories: defaultCategories, antiGoals: defaultAntiGoals, habits: seededHabits, streakFreezes: 2, scholarApps: defaultScholarApps, entertainmentApps: defaultEntertainmentApps };
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'workspaces', id, 'config', 'main'), initialConfig);
+      setWorkspaceMode({ type: 'group', id });
+      setNewWorkspaceName('');
+      setNewWorkspaceMembers('');
+  };
+
+  const switchWorkspace = (id: string) => {
+      if (id === 'personal') {
+        setWorkspaceMode({ type: 'personal' });
+      } else if (workspaces.some(w => w.id === id)) {
+        setWorkspaceMode({ type: 'group', id });
+      } else {
+        setWorkspaceMode({ type: 'personal' });
+      }
+      setView('dashboard');
   };
 
   const snoozeTrackNotice = () => {
@@ -2117,6 +2188,26 @@ export default function ScholarsCompass() {
                >
                  ?
                </button>
+               <div className="flex items-center gap-2 ml-4">
+                 <div className="text-[10px] uppercase font-bold text-slate-500">Workspace</div>
+                 <select 
+                   value={workspaceMode.type === 'personal' ? 'personal' : workspaceMode.id}
+                   onChange={(e) => switchWorkspace(e.target.value)}
+                   className="text-xs border border-slate-200 rounded px-2 py-1 bg-white"
+                 >
+                   <option value="personal">Personal</option>
+                   {workspaces.map(ws => (
+                     <option key={ws.id} value={ws.id}>{ws.name}</option>
+                   ))}
+                 </select>
+                 <button 
+                   onClick={() => setView('settings')}
+                   className="text-[11px] px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100"
+                   title="Add or edit groups in Setup"
+                 >
+                   Manage
+                 </button>
+               </div>
             </div>
           </div>
 
@@ -2806,11 +2897,67 @@ export default function ScholarsCompass() {
         {/* --- VIEW: SETTINGS --- */}
         {view === 'settings' && (
            <div className="animate-fade-in space-y-6">
-             <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-               <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
-               <div className="space-y-4 mb-6">
-                 {config.categories.map((cat) => (
-                   <div key={cat.id} className="flex items-center gap-3">
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Workspaces & Groups</h2>
+              <p className="text-sm text-slate-600 mb-4">Switch between your personal workspace and collaborative groups. Each workspace keeps its own goals, habits, and distractions.</p>
+              <div className="flex flex-col md:flex-row gap-4 items-start">
+                <div className="flex-1 space-y-3">
+                  <div className="text-xs font-bold text-slate-500 uppercase">Existing workspaces</div>
+                  <div className="space-y-2">
+                    <div className={`p-3 rounded border ${workspaceMode.type === 'personal' ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-bold text-slate-800">Personal</div>
+                          <div className="text-[11px] text-slate-500">Solo mode</div>
+                        </div>
+                        <button onClick={() => switchWorkspace('personal')} className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100">Use</button>
+                      </div>
+                    </div>
+                    {workspaces.map(ws => (
+                      <div key={ws.id} className={`p-3 rounded border ${workspaceMode.type === 'group' && workspaceMode.id === ws.id ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-bold text-slate-800">{ws.name}</div>
+                            <div className="text-[11px] text-slate-500">Members: {ws.members.join(', ') || '—'}</div>
+                          </div>
+                          <button onClick={() => switchWorkspace(ws.id)} className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-100">Use</button>
+                        </div>
+                      </div>
+                    ))}
+                    {workspaces.length === 0 && <div className="text-[12px] text-slate-500 italic">No groups yet.</div>}
+                  </div>
+                </div>
+                <div className="w-full md:w-80">
+                  <div className="text-xs font-bold text-slate-500 uppercase mb-2">Create new group</div>
+                  <div className="space-y-2">
+                    <input 
+                      value={newWorkspaceName}
+                      onChange={(e) => setNewWorkspaceName(e.target.value)}
+                      placeholder="Group name"
+                      className="w-full text-sm p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
+                    />
+                    <textarea 
+                      value={newWorkspaceMembers}
+                      onChange={(e) => setNewWorkspaceMembers(e.target.value)}
+                      placeholder="Members (comma separated emails or names)"
+                      className="w-full text-sm p-2 border border-slate-200 rounded focus:border-indigo-500 outline-none"
+                      rows={3}
+                    />
+                    <button 
+                      onClick={addWorkspace}
+                      className="w-full text-sm font-bold bg-indigo-600 text-white px-3 py-2 rounded hover:bg-indigo-700 transition-colors"
+                    >
+                      Create & switch
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+              <h2 className="font-serif text-xl font-bold text-slate-900 mb-4">Plan Configuration</h2>
+              <div className="space-y-4 mb-6">
+                {config.categories.map((cat) => (
+                  <div key={cat.id} className="flex items-center gap-3">
                      <div className={`w-3 h-3 rounded-full bg-${cat.color}-500`}></div>
                      <input 
                        value={cat.title}
