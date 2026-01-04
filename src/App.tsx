@@ -398,8 +398,9 @@ export default function ScholarsCompass() {
   const [showCustomEntertainmentForm, setShowCustomEntertainmentForm] = useState(false);
   const [goalCelebrations, setGoalCelebrations] = useState<Set<string>>(new Set());
   const [habitCelebrations, setHabitCelebrations] = useState<Set<string>>(new Set());
-  const [capturingCalendar, setCapturingCalendar] = useState(false);
-  const calendarCardRef = useRef<HTMLDivElement | null>(null);
+  const [capturingSnapshot, setCapturingSnapshot] = useState(false);
+  const historySnapshotRef = useRef<HTMLDivElement | null>(null);
+  const [pendingSnapshotDate, setPendingSnapshotDate] = useState<string | null>(null);
 
   // --- Clock ---
   useEffect(() => {
@@ -807,19 +808,19 @@ export default function ScholarsCompass() {
     alert(snapshot);
   }, [buildSnapshotText, shareOptions, showShareMessage]);
 
-  const shareCalendarAsJpg = useCallback(async () => {
-    if (!calendarCardRef.current) return;
-    setCapturingCalendar(true);
+  const performImageShare = useCallback(async (targetDate: string) => {
+    if (!historySnapshotRef.current) return;
+    setCapturingSnapshot(true);
     try {
-      const dataUrl = await renderElementToJpeg(calendarCardRef.current);
+      const dataUrl = await renderElementToJpeg(historySnapshotRef.current);
       const response = await fetch(dataUrl);
       const blob = await response.blob();
-      const fileName = `scholar-calendar-${selectedDate}.jpg`;
+      const fileName = `scholar-snapshot-${targetDate}.jpg`;
       const file = new File([blob], fileName, { type: 'image/jpeg' });
 
       if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: 'Scholar Calendar', text: `Calendar view for ${selectedDate}` });
-        showShareMessage('Calendar view shared as JPG.');
+        await navigator.share({ files: [file], title: 'Scholar Snapshot', text: `Daily snapshot for ${targetDate}` });
+        showShareMessage('Snapshot shared as JPG.');
         return;
       }
 
@@ -827,14 +828,31 @@ export default function ScholarsCompass() {
       link.href = dataUrl;
       link.download = fileName;
       link.click();
-      showShareMessage('Calendar view downloaded as JPG.');
+      showShareMessage('Snapshot downloaded as JPG.');
     } catch (err) {
-      console.error('Calendar snapshot failed', err);
-      showShareMessage('Unable to capture calendar JPG.');
+      console.error('Snapshot JPG failed', err);
+      showShareMessage('Unable to capture snapshot JPG.');
     } finally {
-      setCapturingCalendar(false);
+      setCapturingSnapshot(false);
+      setPendingSnapshotDate(null);
     }
-  }, [renderElementToJpeg, selectedDate, showShareMessage]);
+  }, [renderElementToJpeg, showShareMessage]);
+
+  const shareSnapshotAsImage = useCallback((date: string) => {
+    if (!date) return;
+    if (historyDate !== date) {
+      setPendingSnapshotDate(date);
+      setHistoryDate(date);
+      return;
+    }
+    performImageShare(date);
+  }, [historyDate, performImageShare]);
+
+  useEffect(() => {
+    if (pendingSnapshotDate && historyDate === pendingSnapshotDate && historySnapshotRef.current && !capturingSnapshot) {
+      performImageShare(pendingSnapshotDate);
+    }
+  }, [historyDate, pendingSnapshotDate, performImageShare, capturingSnapshot]);
 
   const cloneYesterdayIntoToday = () => {
     if (!todayLog) return;
@@ -1730,7 +1748,14 @@ export default function ScholarsCompass() {
                   onClick={() => historyDate && shareSnapshot(historyDate)}
                   className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
                 >
-                  <Share2 size={16} /> Share snapshot
+                  <Share2 size={16} /> Share text
+                </button>
+                <button 
+                  onClick={() => historyDate && shareSnapshotAsImage(historyDate)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-60"
+                  disabled={capturingSnapshot}
+                >
+                  <Download size={16} /> {capturingSnapshot ? 'Rendering...' : 'JPG'}
                 </button>
                 <button 
                   onClick={() => setHistoryDate(null)}
@@ -1742,7 +1767,7 @@ export default function ScholarsCompass() {
             </div>
 
             {/* Content */}
-            <div className="p-6 space-y-8">
+            <div ref={historySnapshotRef} className="p-6 space-y-8">
               
               {/* Top Summary */}
               <div className="flex flex-col md:flex-row gap-6">
@@ -2126,13 +2151,6 @@ export default function ScholarsCompass() {
                     {calDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                   </h2>
                   <div className="flex gap-2 items-center">
-                    <button 
-                      onClick={shareCalendarAsJpg} 
-                      className="flex items-center gap-1 text-xs px-3 py-2 rounded border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition-colors disabled:opacity-60"
-                      disabled={capturingCalendar}
-                    >
-                      <Download size={14} /> {capturingCalendar ? 'Rendering...' : 'JPG'}
-                    </button>
                     <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded"><ChevronLeft size={20} /></button>
                     <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded"><ChevronRight size={20} /></button>
                   </div>
@@ -2165,12 +2183,21 @@ export default function ScholarsCompass() {
                      </div>
                      <p className="text-[11px] text-slate-500">Share the same view you open with a calendar double-tap. Toggle sections to exclude (e.g., Anti-Goals) before sending.</p>
                    </div>
-                   <button 
-                     onClick={() => shareSnapshot(selectedDate)}
-                     className="flex items-center gap-2 text-[11px] px-3 py-2 bg-indigo-600 text-white font-bold rounded hover:bg-indigo-700 transition-colors"
-                   >
-                     <Share2 size={14} /> Share
-                   </button>
+                   <div className="flex items-center gap-2">
+                     <button 
+                       onClick={() => shareSnapshot(selectedDate)}
+                       className="flex items-center gap-2 text-[11px] px-3 py-2 bg-indigo-600 text-white font-bold rounded hover:bg-indigo-700 transition-colors"
+                     >
+                       <Share2 size={14} /> Text
+                     </button>
+                     <button 
+                       onClick={() => shareSnapshotAsImage(selectedDate)}
+                       className="flex items-center gap-1 text-[11px] px-3 py-2 bg-emerald-600 text-white font-bold rounded hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                       disabled={capturingSnapshot && pendingSnapshotDate === selectedDate}
+                     >
+                       <Download size={12} /> JPG
+                     </button>
+                   </div>
                  </div>
                  <div className="grid grid-cols-2 gap-2">
                    {([
