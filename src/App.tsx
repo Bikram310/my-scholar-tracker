@@ -228,6 +228,8 @@ const getISTTime = () => new Date(new Date().toLocaleString("en-US", { timeZone:
 const getISTDateStr = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()); // YYYY-MM-DD
 const getTodayStr = () => getISTDateStr();
 
+const cloneLog = (log: DailyLog): DailyLog => JSON.parse(JSON.stringify(log));
+
 // --- Helpers for Calendar ---
 const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
 const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay(); // 0 = Sunday
@@ -634,7 +636,8 @@ export default function ScholarsCompass() {
   });
 
   const getLogForDate = useCallback((date: string) => {
-    return logs.find(l => l.date === date) || createEmptyLog(date);
+    const existing = logs.find(l => l.date === date);
+    return existing ? cloneLog(existing) : createEmptyLog(date);
   }, [logs]);
 
   const showShareMessage = useCallback((msg: string) => {
@@ -891,37 +894,49 @@ export default function ScholarsCompass() {
 
   const activeLog = useMemo(() => {
     if (!todayLog) return null;
-    const mergedLog = { ...todayLog };
-    config.categories.forEach(cat => {
-      if (!mergedLog.categories[cat.id]) {
-        mergedLog.categories[cat.id] = {
-          goals: [],
-          goalStatus: [],
-          hours: 0,
-          notes: '',
-          attachments: []
-        };
-      }
-      const catLog = mergedLog.categories[cat.id];
-      if (!catLog.goalStatus) catLog.goalStatus = [];
-      while (catLog.goalStatus.length < catLog.goals.length) catLog.goalStatus.push('pending');
-    });
-    if (!mergedLog.antiGoals) mergedLog.antiGoals = {};
-    config.antiGoals.forEach(ag => { if (!mergedLog.antiGoals[ag.id]) mergedLog.antiGoals[ag.id] = 'pending'; });
-    
-    if (!mergedLog.habits) mergedLog.habits = {};
-    visibleHabitsForDate(mergedLog.date).forEach(h => { if (mergedLog.habits[h.id] === undefined) mergedLog.habits[h.id] = false; });
+    const baseLog = cloneLog(todayLog);
 
-    if (!mergedLog.events) mergedLog.events = [];
-    if (mergedLog.rating === undefined) mergedLog.rating = 0;
-    return mergedLog;
-  }, [todayLog, config]);
+    const mergedCategories: Record<string, CategoryLog> = {};
+    config.categories.forEach(cat => {
+      const catLog = baseLog.categories?.[cat.id];
+      const goals = [...(catLog?.goals || [])];
+      const goalStatus = goals.map((_, idx) => catLog?.goalStatus?.[idx] || 'pending');
+      mergedCategories[cat.id] = {
+        goals,
+        goalStatus,
+        hours: catLog?.hours || 0,
+        notes: catLog?.notes || '',
+        attachments: [...(catLog?.attachments || [])]
+      };
+    });
+
+    const mergedAntiGoals: Record<string, AntiGoalStatus> = {};
+    config.antiGoals.forEach(ag => { mergedAntiGoals[ag.id] = baseLog.antiGoals?.[ag.id] || 'pending'; });
+
+    const mergedHabits: Record<string, boolean> = {};
+    visibleHabitsForDate(baseLog.date).forEach(h => { mergedHabits[h.id] = baseLog.habits?.[h.id] || false; });
+
+    return {
+      ...baseLog,
+      categories: mergedCategories,
+      antiGoals: mergedAntiGoals,
+      habits: mergedHabits,
+      events: [...(baseLog.events || [])],
+      reflection: baseLog.reflection || '',
+      rating: baseLog.rating || 0
+    };
+  }, [todayLog, config, visibleHabitsForDate]);
 
   const saveLog = async (logToSave: DailyLog) => {
     if (!user) return;
+    const logCopy = cloneLog(logToSave);
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logToSave.date), logToSave);
-      if (logToSave.date === getTodayStr()) setTodayLog(logToSave);
+      await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'daily_logs', logCopy.date), logCopy);
+      setLogs(prev => {
+        const filtered = prev.filter(l => l.date !== logCopy.date);
+        return [...filtered, logCopy];
+      });
+      if (logCopy.date === getTodayStr()) setTodayLog(logCopy);
     } catch (e) { console.error(e); }
   };
 
