@@ -927,6 +927,17 @@ export default function ScholarsCompass() {
     };
   }, [todayLog, config, visibleHabitsForDate]);
 
+  const canCloneYesterday = useMemo(() => {
+    if (!activeLog) return false;
+    const hasProgress = Object.values(activeLog.categories || {}).some(catLog =>
+      (catLog.goalStatus || []).some(status => status !== 'pending')
+    );
+    const hasAttachments = Object.values(activeLog.categories || {}).some(catLog =>
+      (catLog.attachments || []).length > 0
+    );
+    return !(hasProgress || hasAttachments);
+  }, [activeLog]);
+
   const saveLog = async (logToSave: DailyLog) => {
     if (!user) return;
     const logCopy = cloneLog(logToSave);
@@ -2912,16 +2923,18 @@ export default function ScholarsCompass() {
               </div>
             )}
 
-            <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-6 rounded-xl border border-orange-100">
-              <h2 className="font-serif text-2xl font-bold text-orange-900 mb-2">Morning Resolutions</h2>
-              <p className="text-orange-800/80">Define your vectors for the day.</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button 
-                  onClick={cloneYesterdayIntoToday}
-                  className="flex items-center gap-2 text-xs font-bold bg-white text-orange-700 px-3 py-2 rounded border border-orange-200 hover:bg-orange-100 shadow-sm"
-                >
-                  <History size={14} /> Same as yesterday
-                </button>
+              <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-6 rounded-xl border border-orange-100">
+                <h2 className="font-serif text-2xl font-bold text-orange-900 mb-2">Morning Resolutions</h2>
+                <p className="text-orange-800/80">Define your vectors for the day.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                {canCloneYesterday && (
+                  <button 
+                    onClick={cloneYesterdayIntoToday}
+                    className="flex items-center gap-2 text-xs font-bold bg-white text-orange-700 px-3 py-2 rounded border border-orange-200 hover:bg-orange-100 shadow-sm"
+                  >
+                    <History size={14} /> Same as yesterday
+                  </button>
+                )}
                 <div className="flex items-center gap-2 ml-auto">
                   <a 
                     href="https://web.whatsapp.com" 
